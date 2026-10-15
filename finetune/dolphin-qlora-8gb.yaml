@@ -1,0 +1,88 @@
+# QLoRA fine-tuning of Dolphin 3.0 Llama 3.1 8B on this laptop's 8 GB RTX 5070.
+# Every value can be overridden per run:  --set training.learning_rate=1e-4
+# Paths are relative to the workspace root unless absolute.
+
+base_model:
+  # The trainable (Safetensors, BF16) checkpoint that Sulvana's Q4_K_M GGUF was quantised from.
+  repo_id: dphn/Dolphin3.0-Llama3.1-8B          # formerly cognitivecomputations/Dolphin3.0-Llama3.1-8B
+  revision: f065677950dfc7e708d518d64cf1f5041ee007a0   # pinned; never "main"
+  license: llama3.1                              # Llama 3.1 Community License
+  upstream_base: meta-llama/Llama-3.1-8B
+  # The inference file Sulvana actually runs. Only read for verification, never modified.
+  local_gguf: models/Dolphin3.0-Llama3.1-8B/Dolphin3.0-Llama3.1-8B-Q4_K_M.gguf
+  gguf_sha256: 268390e07edd407ad93ea21a868b7ae995b5950e01cad0db9e1802ae5049d405
+  # Weight shards of the pinned revision and their exact sizes (16.06 GB in total).
+  weight_files:
+    model-00001-of-00004.safetensors: 4976715056
+    model-00002-of-00004.safetensors: 4999802720
+    model-00003-of-00004.safetensors: 4915916176
+    model-00004-of-00004.safetensors: 1168155192
+
+data:
+  train_file: null            # e.g. datasets/my-data/train.jsonl (or pass --train-file)
+  val_file: null              # e.g. datasets/my-data/val.jsonl   (or pass --val-file)
+  # Sulvana runs with a 4096-token context, but training memory grows with length.
+  # 512 is the conservative start for 8 GB; lower it to 384 or 256 before anything else if VRAM is short.
+  max_seq_length: 512
+  on_overlength: truncate     # truncate = keep the first max_seq_length tokens; drop = skip the example
+  system_prompt:
+    # as-is: train on each record exactly as written.
+    # file:  prepend the text in `path` as the system message of records that have none.
+    #        Sulvana always sends its own system prompt, so matching it here makes training
+    #        closer to how the app will use the adapter (it costs about 490 tokens, so raise max_seq_length with it).
+    mode: as-is
+    path: null
+
+quantization:
+  load_in_4bit: true
+  quant_type: nf4
+  double_quant: true
+  compute_dtype: bfloat16     # the RTX 5070 supports BF16 natively
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  # Attention projections only: 13.6 M trainable parameters. Adding gate_proj/up_proj/down_proj
+  # trains more capacity but costs VRAM this machine does not have to spare.
+  target_modules: [q_proj, k_proj, v_proj, o_proj]
+  bias: none
+
+training:
+  num_train_epochs: 3
+  per_device_train_batch_size: 1      # keep at 1 on 8 GB
+  gradient_accumulation_steps: 16     # effective batch size 16
+  learning_rate: 2.0e-4               # the usual QLoRA rate; use 1.0e-4 for very small datasets
+  lr_scheduler: cosine
+  warmup_ratio: 0.03
+  weight_decay: 0.0
+  max_grad_norm: 0.3
+  optimizer: paged_adamw_8bit         # 8-bit optimizer state, paged to survive short VRAM spikes
+  gradient_checkpointing: true        # trades speed for a large cut in activation memory
+  bf16: true
+  logging_steps: 5
+  eval_steps: 50
+  save_steps: 50                      # a resumable checkpoint every 50 optimiser steps
+  save_total_limit: 3
+  seed: 42
+
+memory:
+  # The 128258 x 4096 input embedding table is 1.05 GB in BF16 and cannot be quantised.
+  # It is only a lookup, so keeping it in system RAM costs almost no speed and frees that VRAM.
+  offload_embeddings_to_cpu: true
+  # The output head is another 1.05 GB in BF16. Quantising it to 4-bit saves about 0.8 GB but
+  # adds noise to the logits during training; turn it on only if the probe run runs out of memory.
+  quantize_lm_head: false
+  # Refuse to start a real run with less free VRAM than this (override with --force).
+  min_free_vram_gib: 6.0
+
+thermal:
+  # Pause training when the GPU reaches this temperature and continue once it has cooled.
+  # 0 turns the guard off. This laptop reached 90 C in a few minutes without it.
+  max_gpu_temp_c: 80
+  resume_gpu_temp_c: 68
+  # Optional rest after every conversation, in seconds, to run cooler overall (0.5 is a mild brake).
+  pace_seconds: 0
+
+output:
+  root: runs/finetune

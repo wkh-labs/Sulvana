@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Sulvana
+Comment=Private local chat, vision, images, and safe research tools
+Exec=/home/tanchjim/.local/bin/sulvana
+Icon=applications-science
+Terminal=false
+Categories=Education;Utility;
+StartupNotify=true

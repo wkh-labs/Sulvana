@@ -1,0 +1,40 @@
+# Large weights, inference runtimes and toolchains (re-downloadable)
+models/
+vision-runner/
+z-image-runner/
+stable-diffusion.cpp/
+sd-vulkan.zip
+.runtime/
+.python/
+.venv/
+
+# Caches
+.cache/
+.uv-cache/
+__pycache__/
+*.pyc
+node_modules/
+.ipynb_checkpoints/
+
+# Build outputs (rebuild with `npm run build` / the launcher's javac step)
+sulvana-ui/dist/
+java-ui/build/
+
+# Training data is private by default; only the documented format and the
+# clearly labelled synthetic smoke-test fixture are tracked.
+datasets/*
+!datasets/README.md
+!datasets/fixtures/
+datasets/fixtures/*
+!datasets/fixtures/synthetic-smoke.jsonl
+
+# Run outputs: generated images, adapters, checkpoints, logs
+runs/
+
+# Private benchmark answers
+benchmark/**/answer_key.private.jsonl
+benchmark/answer_key.private.jsonl
+
+# Personal notes for Sulvana (may be private)
+knowledge/notes/*
+!knowledge/notes/README.md

@@ -1,0 +1,275 @@
+@import "tailwindcss";
+
+/* Design tokens. The palette follows Apple's system colours (the apple.com blue, the system
+   greys and label colours, hairline separators), adjusted only where a pair would otherwise
+   fall below 4.5:1 for text. */
+:root,
+[data-theme="dark"] {
+  --bg-app-canvas: #1C1C1E;
+  --bg-app-canvas-clear: rgba(28, 28, 30, 0);
+  --bg-sidebar: #262628;
+  --bg-elevated: #2C2C2E;
+  --bg-input: #2C2C2E;
+  --bg-user-msg: #0071E3;
+  --bg-code-block: #151517;
+  --bg-code-header: #222224;
+  --bg-sheet: #2C2C2E;
+  --bg-group: #3A3A3C;
+  --bg-segment-selected: #636366;
+
+  --text-primary: #F5F5F7;
+  --text-secondary: #AEAEB2;
+  --text-muted: #98989D;
+
+  --accent-primary: #0071E3;
+  --accent-hover: #0066CC;
+  --accent-subtle: rgba(10, 132, 255, 0.18);
+  --accent-text: #409CFF;
+  --accent-text-on-solid: #FFFFFF;
+
+  --border-subtle: #38383A;
+  --border-focus: #409CFF;
+  --focus-halo: rgba(64, 156, 255, 0.32);
+
+  /* Translucent grey fills sit correctly on any surface, like Apple's system fills. */
+  --fill: rgba(118, 118, 128, 0.24);
+  --fill-hover: rgba(118, 118, 128, 0.36);
+  --fill-selected: rgba(118, 118, 128, 0.32);
+
+  --status-ready: #30D158;
+  --status-busy: #FF9F0A;
+  --status-warn: #FF9F0A;
+  --status-error: #FF6961;
+  --error-subtle: rgba(255, 69, 58, 0.14);
+  --danger-fill: #D70015;
+  --range-track: #48484A;
+
+  /* Liquid Glass: a softly tinted backdrop with translucent, blurred panels floating on it. */
+  --canvas-base: #0B0D12;
+  --canvas-veil: rgba(11, 13, 18, 0.78);
+  --mesh: radial-gradient(1100px 680px at 8% -12%, rgba(10, 132, 255, 0.30), transparent 62%),
+    radial-gradient(900px 700px at 108% 6%, rgba(94, 92, 230, 0.26), transparent 62%),
+    radial-gradient(900px 760px at 80% 112%, rgba(255, 94, 122, 0.15), transparent 60%),
+    radial-gradient(700px 600px at -6% 106%, rgba(48, 209, 188, 0.13), transparent 60%);
+  --glass: rgba(46, 46, 54, 0.52);
+  --glass-strong: rgba(40, 40, 48, 0.74);
+  --glass-border: rgba(255, 255, 255, 0.13);
+  --glass-shine: inset 0 1px 0 rgba(255, 255, 255, 0.20), inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+  --glass-shadow: 0 10px 34px rgba(0, 0, 0, 0.32);
+
+  --backdrop: rgba(0, 0, 0, 0.42);
+  --shadow-panel: 0 0 0 0.5px rgba(255, 255, 255, 0.14), 0 24px 70px rgba(0, 0, 0, 0.55);
+  --shadow-field: 0 1px 2px rgba(0, 0, 0, 0.3);
+
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  --bg-app-canvas: #FFFFFF;
+  --bg-app-canvas-clear: rgba(255, 255, 255, 0);
+  --bg-sidebar: #F5F5F7;
+  --bg-elevated: #FFFFFF;
+  --bg-input: #FFFFFF;
+  --bg-user-msg: #0071E3;
+  --bg-code-block: #F5F5F7;
+  --bg-code-header: #EBEBED;
+  --bg-sheet: #F5F5F7;
+  --bg-group: #FFFFFF;
+  --bg-segment-selected: #FFFFFF;
+
+  --text-primary: #1D1D1F;
+  --text-secondary: #48484D;
+  --text-muted: #5C5C62;
+
+  --accent-primary: #0071E3;
+  --accent-hover: #0066CC;
+  --accent-subtle: rgba(0, 113, 227, 0.1);
+  --accent-text: #0058B8;
+  --accent-text-on-solid: #FFFFFF;
+
+  --border-subtle: #D2D2D7;
+  --border-focus: #0071E3;
+  --focus-halo: rgba(0, 113, 227, 0.25);
+
+  --fill: rgba(118, 118, 128, 0.12);
+  --fill-hover: rgba(118, 118, 128, 0.2);
+  --fill-selected: rgba(118, 118, 128, 0.18);
+
+  --status-ready: #248A3D;
+  --status-busy: #C93400;
+  --status-warn: #C93400;
+  --status-error: #D70015;
+  --error-subtle: rgba(215, 0, 21, 0.07);
+  --danger-fill: #D70015;
+  --range-track: #D2D2D7;
+
+  --canvas-base: #EAF0F6;
+  --canvas-veil: rgba(234, 240, 246, 0.82);
+  --mesh: radial-gradient(1100px 680px at 8% -12%, rgba(64, 156, 255, 0.22), transparent 62%),
+    radial-gradient(900px 700px at 108% 6%, rgba(100, 210, 255, 0.24), transparent 62%),
+    radial-gradient(900px 760px at 80% 112%, rgba(255, 170, 120, 0.16), transparent 60%),
+    radial-gradient(700px 600px at -6% 106%, rgba(110, 215, 195, 0.18), transparent 60%);
+  --glass: rgba(255, 255, 255, 0.56);
+  --glass-strong: rgba(255, 255, 255, 0.78);
+  --glass-border: rgba(255, 255, 255, 0.75);
+  --glass-shine: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 0 0 0.5px rgba(255, 255, 255, 0.5);
+  --glass-shadow: 0 10px 34px rgba(30, 60, 110, 0.14);
+
+  --backdrop: rgba(20, 30, 50, 0.22);
+  --shadow-panel: 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 24px 70px rgba(0, 0, 0, 0.22);
+  --shadow-field: 0 1px 2px rgba(0, 0, 0, 0.06);
+
+  color-scheme: light;
+}
+
+:root {
+  /* San Francisco where it exists (Apple platforms), otherwise Inter or the Inter-based
+     Adwaita Sans that ships with this desktop, then script-specific Noto faces. */
+  --font-sans: "SF Pro Text", "SF Pro Display", "Inter", "Adwaita Sans", -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Noto Sans", "Noto Sans Khmer", "Noto Sans Arabic", "Noto Sans SC", "Noto Sans JP", system-ui, sans-serif;
+  --font-mono: "SF Mono", SFMono-Regular, Menlo, "DejaVu Sans Mono", "Adwaita Mono", ui-monospace, monospace;
+
+  /* Weights. Sulvana's WebView draws variable fonts in their regular weight only, so medium,
+     semibold and bold are produced with a hairline stroke in the text colour. Sizes are in em
+     so the effect scales with the type. Use these instead of font-weight. */
+  --weight-medium: 0.014em;
+  --weight-semibold: 0.026em;
+  --weight-bold: 0.038em;
+
+  --glass-blur: saturate(180%) blur(30px);
+  --spring: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* The JavaFX fallback window claims to blur but does not, so its panels are opaque. */
+[data-shell="javafx"] {
+  --glass: var(--bg-elevated);
+  --glass-strong: var(--bg-elevated);
+  --canvas-veil: var(--canvas-base);
+}
+
+body {
+  font-family: var(--font-sans);
+  font-weight: 400;
+  background-color: var(--bg-app-canvas);
+  color: var(--text-primary);
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.font-mono-tabular {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Multi-script safe message typography:
+   Never apply non-zero letter-spacing so Khmer stacked subscripts and Arabic ligatures never break */
+.sulvana-message-prose {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.6;
+  letter-spacing: 0px;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+/* Slim, unobtrusive scrollbars in the spirit of overlay scrollers. */
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--fill-hover);
+  border: 2px solid transparent;
+  border-radius: 6px;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+  background-clip: padding-box;
+}
+
+::selection {
+  background: var(--focus-halo);
+}
+
+/* Subtle pulsing indicator for active hardware / model states */
+@keyframes sulvanaPulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.animate-sulvana-pulse {
+  animation: sulvanaPulse 1.6s ease-in-out infinite;
+}
+
+@keyframes sulvanaSheetIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes sulvanaFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes sulvanaRise {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes sulvanaPop {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes sulvanaShimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes sulvanaFloat {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}

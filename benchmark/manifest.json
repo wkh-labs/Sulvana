@@ -1,0 +1,37 @@
+{
+  "name": "Khmer Bilingual AI Benchmark",
+  "version": "1.0.0",
+  "seed": 20260924,
+  "license": "CC0-1.0",
+  "provenance": "Original synthetic benchmark generated for this project; no scraped text.",
+  "total_questions": 800,
+  "counts": {
+    "category": {
+      "computing_ai": 100,
+      "general_knowledge": 80,
+      "language": 80,
+      "mathematics": 320,
+      "reading_comprehension": 30,
+      "reasoning": 50,
+      "safety_reliability": 40,
+      "science": 100
+    },
+    "language": {
+      "en": 400,
+      "km": 400
+    },
+    "difficulty": {
+      "advanced": 62,
+      "basic": 335,
+      "intermediate": 403
+    },
+    "split": {
+      "dev": 160,
+      "test": 640
+    }
+  },
+  "files": {
+    "questions": "questions.jsonl",
+    "private_answer_key": "answer_key.private.jsonl"
+  }
+}

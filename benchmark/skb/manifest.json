@@ -1,0 +1,23 @@
+{
+  "name": "Sulvana Khmer Benchmark",
+  "version": "1.1.0",
+  "items": 147,
+  "license": "CC0-1.0",
+  "provenance": "Original items written for this project; no scraped text.",
+  "sections": {
+    "reading": 20,
+    "math": 21,
+    "knowledge": 20,
+    "translate_to_khmer": 15,
+    "translate_to_english": 10,
+    "instructions": 15,
+    "reasoning": 8,
+    "english": 8,
+    "basics": 30
+  },
+  "difficulty": {
+    "easy": 58,
+    "medium": 49,
+    "hard": 40
+  }
+}

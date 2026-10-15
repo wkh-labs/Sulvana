@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Sulvana
+Comment=Private local AI chat, vision, and image creation
+Exec=/home/tanchjim/.local/bin/sulvana
+Icon=/home/tanchjim/Documents/Codex/ai-workspace/sulvana-icon.png
+Terminal=false
+Categories=Education;Utility;
+StartupNotify=true

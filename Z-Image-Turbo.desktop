@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Z-Image Turbo
+Comment=Generate images locally with Z-Image Turbo
+Exec=/home/tanchjim/Documents/Codex/ai-workspace/z-image-gui.sh
+Terminal=false
+Categories=Graphics;

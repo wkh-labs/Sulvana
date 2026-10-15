@@ -1,0 +1,22 @@
+{"id": "greeting", "lang": "km", "prompt": "សួស្តី! តើអ្នកជានរណា?"}
+{"id": "capital", "lang": "km", "prompt": "តើរាជធានីរបស់ប្រទេសកម្ពុជាមានឈ្មោះអ្វី?", "expect_any": ["ភ្នំពេញ"]}
+{"id": "explain-ai", "lang": "km", "prompt": "សូមពន្យល់ថា បញ្ញាសិប្បនិម្មិតគឺជាអ្វី ដោយប្រើពាក្យសាមញ្ញៗ។"}
+{"id": "angkor", "lang": "km", "prompt": "សូមសរសេរអត្ថបទខ្លីមួយអំពីប្រាសាទអង្គរវត្ត។", "expect_any": ["អង្គរ"]}
+{"id": "translate-to-km", "lang": "km", "prompt": "សូមបកប្រែប្រយោគនេះជាភាសាខ្មែរ៖ The weather is very nice today, so let's go for a walk."}
+{"id": "translate-to-en", "lang": "km", "reply": "en", "prompt": "សូមបកប្រែជាភាសាអង់គ្លេស៖ ខ្ញុំចូលចិត្តអានសៀវភៅនៅពេលល្ងាច។", "expect_any": ["read", "book"]}
+{"id": "list-fruit", "lang": "km", "prompt": "សូមរៀបរាប់ផ្លែឈើប្រាំប្រភេទដែលមាននៅកម្ពុជា។"}
+{"id": "math-riel", "lang": "km", "prompt": "បើខ្ញុំមានប្រាក់ ១០០០០ រៀល ហើយចំណាយអស់ ៣៥០០ រៀល តើខ្ញុំនៅសល់ប៉ុន្មានរៀល?", "expect_any": ["៦៥០០", "6500", "៦,៥០០", "6,500", "៦ ៥០០", "៦.៥០០"]}
+{"id": "python-sum", "lang": "km", "prompt": "សូមសរសេរកូដ Python ដើម្បីបូកលេខពី ១ ដល់ ១០០ ហើយពន្យល់ជាភាសាខ្មែរ។", "expect_any": ["sum", "range", "for "]}
+{"id": "learn-english", "lang": "km", "prompt": "តើខ្ញុំគួរធ្វើដូចម្តេចដើម្បីរៀនភាសាអង់គ្លេសឱ្យបានល្អ?"}
+{"id": "summarise", "lang": "km", "prompt": "សូមសង្ខេបអត្ថបទនេះជាមួយប្រយោគ៖ ទន្លេមេគង្គជាទន្លេដ៏វែងមួយនៅអាស៊ីអាគ្នេយ៍។ វាហូរកាត់ប្រទេសជាច្រើន រួមទាំងកម្ពុជា ហើយផ្តល់ទឹកនិងត្រីដល់ប្រជាជនរាប់លាននាក់។", "expect_any": ["មេគង្គ"]}
+{"id": "what-can-you-do", "lang": "km", "prompt": "តើថ្ងៃនេះអ្នកអាចជួយខ្ញុំអ្វីបានខ្លះ?"}
+{"id": "mixed-ml", "lang": "km", "prompt": "ខ្ញុំចង់ដឹងថា machine learning ខុសពី deep learning យ៉ាងដូចម្តេច?"}
+{"id": "leave-letter", "lang": "km", "prompt": "សូមសរសេរសំបុត្រខ្លីមួយសុំច្បាប់ឈប់សម្រាកមួយថ្ងៃពីការងារ។"}
+{"id": "boiling", "lang": "km", "prompt": "តើទឹកពុះនៅសីតុណ្ហភាពប៉ុន្មានអង្សាសេ?", "expect_any": ["100", "១០០"]}
+{"id": "joke", "lang": "km", "prompt": "សូមប្រាប់រឿងកំប្លែងខ្លីមួយ។"}
+{"id": "identity-km", "lang": "km", "prompt": "តើអ្នកឈ្មោះអ្វី ហើយអ្នកប្រើម៉ូដែលអ្វី?", "expect_any": ["Sulvana", "ស៊ុលវ៉ាណា"]}
+{"id": "emoji-only", "lang": "km", "prompt": "👋"}
+{"id": "en-capital", "lang": "en", "prompt": "What is the capital of Cambodia?", "expect_any": ["Phnom Penh"]}
+{"id": "en-variable", "lang": "en", "prompt": "Explain briefly what a variable is in programming."}
+{"id": "en-identity", "lang": "en", "prompt": "What is your name, and what model are you built on?", "expect_any": ["Sulvana"]}
+{"id": "en-ask-khmer", "lang": "km", "prompt": "Please answer in Khmer: what are three healthy breakfast ideas?"}

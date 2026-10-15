@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Sulvana: a five-petal lotus (the towers of Angkor, seen as lotus buds) in a glass tile. -->
+  <defs>
+    <linearGradient id="tile" x1="0.15" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#FFB340"/><stop offset="0.48" stop-color="#FF5E7A"/><stop offset="1" stop-color="#7A5CFF"/>
+    </linearGradient>
+    <radialGradient id="sheen" cx="0.3" cy="0.1" r="0.9">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.55"/><stop offset="0.45" stop-color="#fff" stop-opacity="0.08"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect x="24" y="24" width="464" height="464" rx="108" fill="url(#tile)"/>
+  <rect x="24" y="24" width="464" height="464" rx="108" fill="url(#sheen)"/>
+  <rect x="25.5" y="25.5" width="461" height="461" rx="106.5" fill="none" stroke="#fff" stroke-opacity="0.35" stroke-width="3"/>
+  <g transform="translate(256 392)" fill="#fff">
+    <path d="M0 -150C36 -93 40 -45 22 -9C12 3 -12 3 -22 -9C-40 -45 -36 -93 0 -150Z" transform="rotate(-64)" opacity="0.55"/>
+    <path d="M0 -150C36 -93 40 -45 22 -9C12 3 -12 3 -22 -9C-40 -45 -36 -93 0 -150Z" transform="rotate(64)" opacity="0.55"/>
+    <path d="M0 -205C41.4 -127.1 46 -61.5 25.3 -12.3C13.8 4.1 -13.8 4.1 -25.3 -12.3C-46 -61.5 -41.4 -127.1 0 -205Z" transform="rotate(-33)" opacity="0.78"/>
+    <path d="M0 -205C41.4 -127.1 46 -61.5 25.3 -12.3C13.8 4.1 -13.8 4.1 -25.3 -12.3C-46 -61.5 -41.4 -127.1 0 -205Z" transform="rotate(33)" opacity="0.78"/>
+    <path d="M0 -262C48.6 -162.4 54 -78.6 29.7 -15.7C16.2 5.2 -16.2 5.2 -29.7 -15.7C-54 -78.6 -48.6 -162.4 0 -262Z" transform="rotate(0)" opacity="1"/>
+  </g>
+</svg>

@@ -1,0 +1,97 @@
+# Teaching MiMo-V2.6-Distill-Qwen-9B (Sulvana's base model since 2026-10-14) better Khmer on this
+# laptop's 8 GB RTX 5070. Same recipe as dolphin-khmer-qlora-8gb.yaml, adjusted for the model:
+# no BOS token, the "no thinking" chat format, hybrid linear-attention layers, a 248k-token vocabulary.
+# Run a short probe first (--stop-after 2); the numbers below are estimates until then.
+# Every value can be overridden per run:  --set training.learning_rate=5e-5
+# Paths are relative to the workspace root unless absolute.
+
+base_model:
+  repo_id: XiaomiMiMo/MiMo-V2.6-Distill-Qwen-9B
+  revision: 2367e865d009c13ac81713a2878291d33ab28177   # pinned; never "main"
+  license: mit
+  upstream_base: Qwen/Qwen3.5-9B                         # Apache-2.0
+  # The checkpoint is multimodal; train only its language model (the vision tower is not loaded).
+  model_class: Qwen3_5ForCausalLM
+  uses_bos: false                                        # Qwen-style: sequences start without a BOS token
+  lineage_note: >-
+    This adapter is a derivative of XiaomiMiMo/MiMo-V2.6-Distill-Qwen-9B (MIT licence), which is a
+    supervised fine-tune of Qwen/Qwen3.5-9B (Apache-2.0).
+  # The inference file Sulvana runs (bartowski's imatrix Q4_K_M of the same revision). Only read, never modified.
+  local_gguf: models/MiMo-V2.6-Distill-Qwen-9B/MiMo-V2.6-Distill-Qwen-9B-Q4_K_M.gguf
+  gguf_sha256: 4bca6f18c73f72270c7a20c2ea2bea581de8246e318714277120369d34048c81
+  # Weight shards of the pinned revision and their exact sizes (18.82 GB in total, vision tower included).
+  weight_files:
+    model-00001-of-00004.safetensors: 5276436216
+    model-00002-of-00004.safetensors: 5033171280
+    model-00003-of-00004.safetensors: 5234499504
+    model-00004-of-00004.safetensors: 3275613848
+
+data:
+  train_file: null            # pass --train-file
+  val_file: null              # pass --val-file
+  # MiMo's tokenizer needs about 1 token per Khmer character (Dolphin needed 1.55). With the
+  # Khmer training data, 640 tokens holds 97% of conversations whole (median 221, p99 747).
+  max_seq_length: 640
+  on_overlength: truncate
+  # Train the answer format Sulvana uses for normal chat: thinking switched off, which ends the
+  # prompt with an empty "<think></think>" before the answer.
+  chat_template_kwargs:
+    enable_thinking: false
+  system_prompt:
+    mode: as-is
+    path: null
+
+quantization:
+  load_in_4bit: true
+  quant_type: nf4
+  double_quant: true
+  compute_dtype: bfloat16
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  # Every large linear layer of the language model: attention in the 8 full-attention layers,
+  # the projections of the 24 Gated DeltaNet (linear-attention) layers, and every MLP.
+  # in_proj_a / in_proj_b (tiny gate projections, 3 M parameters) are left frozen.
+  target_modules: [q_proj, k_proj, v_proj, o_proj, in_proj_qkv, in_proj_z, out_proj, gate_proj, up_proj, down_proj]
+  bias: none
+
+training:
+  num_train_epochs: 1
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 16
+  # Gentle: MiMo's coding and agent skills should survive. (Sulvana's coding mode can also run
+  # without the adapter.)
+  learning_rate: 1.0e-4
+  lr_scheduler: cosine
+  warmup_ratio: 0.03
+  weight_decay: 0.0
+  max_grad_norm: 0.3
+  optimizer: paged_adamw_8bit
+  gradient_checkpointing: true
+  group_by_length: true               # used when per_device_train_batch_size > 1
+  bf16: true
+  logging_steps: 5
+  eval_steps: 100
+  save_steps: 50
+  save_total_limit: 3
+  seed: 42
+
+memory:
+  # The 248320 x 4096 input embedding table is 2.03 GB in BF16: keep it in system RAM.
+  offload_embeddings_to_cpu: true
+  # The untied output head is another 2.03 GB in BF16; 4-bit brings it to about 0.6 GB.
+  quantize_lm_head: true
+  # bitsandbytes unpacks a 4-bit head to BF16 for every matmul: 1.9 GiB for this vocabulary, more
+  # than an 8 GB card has spare. Split it into slices that are unpacked one at a time.
+  lm_head_chunks: 8
+  min_free_vram_gib: 6.0
+
+thermal:
+  max_gpu_temp_c: 80
+  resume_gpu_temp_c: 68
+  pace_seconds: 0
+
+output:
+  root: runs/finetune

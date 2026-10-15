@@ -1,0 +1,8 @@
+{
+  "name": "sulvana-desktop",
+  "productName": "Sulvana",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sulvana's desktop window: a Chromium shell around the local web interface.",
+  "main": "main.js"
+}
