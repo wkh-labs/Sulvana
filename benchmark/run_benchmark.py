@@ -33,7 +33,7 @@ MODELS = {
     "mimo": ROOT / "models/MiMo-V2.6-Distill-Qwen-9B/MiMo-V2.6-Distill-Qwen-9B-Q4_K_M.gguf",
 }
 MODEL = MODELS["dolphin"]
-LORA_SCALE = 1.0
+LORA_SCALE = [1.0]
 SERVER = ROOT / "vision-runner/llama-server"
 # One fixed instruction for every model. No tool instructions: tools are not part of this score.
 SYSTEM = ("You are Sulvana, a Khmer-first AI assistant. Answer the question directly and briefly. "
@@ -66,8 +66,8 @@ def start_server(lora: Path | None, context: int) -> tuple[subprocess.Popen, str
     command = [str(SERVER), "--model", str(MODEL), "--host", "127.0.0.1", "--port", str(port),
                "--ctx-size", str(context), "--gpu-layers", "99", "--flash-attn", "auto",
                "--cache-type-k", "q8_0", "--cache-type-v", "q8_0", "--parallel", "1", "--no-webui"]
-    if lora:
-        command += ["--lora-scaled", f"{lora}:{LORA_SCALE}"] if LORA_SCALE != 1.0 else ["--lora", str(lora)]
+    if lora:   # one adapter, or several applied together (paths and scales separated by commas)
+        command += ["--lora-scaled", ",".join(f"{path}:{scale}" for path, scale in zip(lora, LORA_SCALE))]
     process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     endpoint = f"http://127.0.0.1:{port}"
     for _ in range(240):
@@ -103,7 +103,7 @@ def main() -> int:
     parser.add_argument("--split", choices=["dev", "test", "all"], default="dev")
     parser.add_argument("--base", choices=sorted(MODELS), default="dolphin", help="which base model GGUF to load")
     parser.add_argument("--lora", default=None, help="GGUF LoRA adapter to apply on top of the model")
-    parser.add_argument("--lora-scale", type=float, default=1.0, help="strength of the adapter (1.0 = as trained)")
+    parser.add_argument("--lora-scale", default="1.0", help="adapter strength, 1.0 = as trained (comma-separated for several adapters)")
     parser.add_argument("--max-tokens", type=int, default=256)
     parser.add_argument("--limit", type=int, default=None, help="only the first N questions (quick check)")
     parser.add_argument("--max-gpu-temp", type=float, default=80, help="pause above this temperature (0 = off)")
@@ -111,15 +111,17 @@ def main() -> int:
     args = parser.parse_args()
     global MODEL, LORA_SCALE
     MODEL = MODELS[args.base]
-    LORA_SCALE = args.lora_scale
+    LORA_SCALE = [float(x) for x in str(args.lora_scale).split(",")]
     if not MODEL.is_file():
         raise SystemExit(f"Model file not found: {MODEL}")
     if not re.fullmatch(r"[A-Za-z0-9._-]{1,60}", args.label):
         raise SystemExit("--label may only contain letters, digits, dot, dash and underscore")
     if subprocess.run(["systemctl", "--user", "is-active", "--quiet", "sulvana-web.service"]).returncode == 0:
         raise SystemExit("Sulvana is running and holds the GPU. Stop it first: systemctl --user stop sulvana-web")
-    lora = Path(args.lora).resolve() if args.lora else None
-    if lora and not lora.is_file():
+    lora = [Path(item).resolve() for item in args.lora.split(",")] if args.lora else None
+    if lora and len(LORA_SCALE) == 1:
+        LORA_SCALE = LORA_SCALE * len(lora)
+    if lora and (len(lora) != len(LORA_SCALE) or not all(item.is_file() for item in lora)):
         raise SystemExit(f"Adapter not found: {lora}")
     suite = HERE / "skb" if args.suite == "skb" else HERE
     questions = [json.loads(line) for line in (suite / "questions.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
@@ -148,7 +150,7 @@ def main() -> int:
         server.terminate()
         server.wait(timeout=30)
     manifest = {"label": args.label, "suite": args.suite, "split": args.split, "questions": len(questions), "model": str(MODEL),
-                "lora": str(lora) if lora else None, "system_prompt": SYSTEM, "temperature": 0,
+                "lora": [str(item) for item in lora] if lora else None, "lora_scale": LORA_SCALE if lora else None, "system_prompt": SYSTEM, "temperature": 0,
                 "max_tokens": args.max_tokens, "tools": "none", "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
     (out / "run.json").write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     if args.suite == "skb":

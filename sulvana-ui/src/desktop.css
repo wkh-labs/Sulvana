@@ -296,3 +296,29 @@ h5.md-heading { font-size: 16px; }
 .about-row img { flex: none; width: 52px; height: 46px; object-fit: contain; }
 .about-row strong { display: block; font-size: 13px; color: var(--text-primary); }
 .about-row span { display: block; font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
+
+/* Model picker note and the Improve dialog */
+.modal p.model-note { margin: -2px 16px 10px; }
+.improve-backdrop .modal { width: min(680px, 100%); }
+.improve-text { display: block; width: 100%; min-height: 220px; max-height: 50vh; resize: vertical; margin: 12px 0; padding: 12px 14px; border: 1px solid var(--glass-border); border-radius: 14px; background: var(--bg-code-block); color: var(--text-primary); font: 14px/1.6 var(--font-sans, inherit); }
+.improve-text:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 1px; }
+
+/* Sidebar search, groups and rename */
+.sidebar-search { display: flex; align-items: center; gap: 7px; margin: 2px 4px 6px; padding: 0 10px; height: 32px; border-radius: 10px; background: var(--fill); color: var(--text-muted); }
+.sidebar-search input { flex: 1; min-width: 0; border: 0; background: none; color: var(--text-primary); font-size: 12.5px; outline: none; }
+.sidebar-search input::placeholder { color: var(--text-muted); }
+.sidebar-search:focus-within { box-shadow: 0 0 0 2px var(--accent-text); }
+.conversation-list section + section { margin-top: 8px; }
+.sidebar-empty { font-size: 12px; color: var(--text-muted); padding: 8px 10px; }
+.rename-input { flex: 1; min-width: 0; height: 30px; margin: 2px 0; padding: 0 8px; border: 1px solid var(--accent-text); border-radius: 9px; background: var(--bg-code-block); color: var(--text-primary); font-size: 13px; }
+/* Jump back to the newest message */
+.jump-latest { position: sticky; bottom: 12px; left: 50%; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 13px; border: 1px solid var(--glass-border); border-radius: 980px; background: var(--glass-strong); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); color: var(--text-primary); font-size: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.25); animation: sulvanaPop .3s var(--spring) both; z-index: 2; }
+/* Bilingual suggestion chips */
+.suggestions button small { display: block; font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+/* Text size (Settings) */
+html[data-text-size="small"] .message-column { zoom: .92; }
+html[data-text-size="large"] .message-column { zoom: 1.14; }
+/* Narrow windows: keep the model name readable; the base-model and speed chips are optional. */
+@media (max-width: 1000px) {
+  .model-info .model-chip:not(.adapter-chip), .topbar-right .speed { display: none; }
+}

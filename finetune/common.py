@@ -407,6 +407,12 @@ def host_embedding(embedding, device):
     """
     import torch
 
+    try:
+        from accelerate.hooks import remove_hook_from_module
+        remove_hook_from_module(embedding, recurse=True)
+    except ImportError:
+        pass
+
     class HostEmbedding(torch.nn.Module):
         def __init__(self) -> None:
             super().__init__()
@@ -476,8 +482,12 @@ def chunked_head(config: dict, head, compute_dtype, chunks: int):
 def load_base(config: dict, tokenizer, smoke: bool):
     """Load the frozen base model in 4-bit, the same way for training and for evaluation."""
     import torch
+    import transformers.modeling_utils
     from transformers import AutoModelForCausalLM, BitsAndBytesConfig
 
+    # Transformers reserves the whole model size as one GPU block before loading, only to speed loading
+    # up. With the desktop holding ~2 GB of an 8 GB card that reservation fails although training fits.
+    transformers.modeling_utils.caching_allocator_warmup = lambda *args, **kwargs: None
     base = config["base_model"]
     source, revision = (str(smoke_base(config, tokenizer)), None) if smoke else (base["repo_id"], base["revision"])
     quant, memory = config["quantization"], config["memory"]
@@ -486,6 +496,11 @@ def load_base(config: dict, tokenizer, smoke: bool):
     if revision:
         kwargs["revision"] = revision
     if on_gpu:
+        # The input embeddings go straight to system RAM: loading them onto the GPU first (1.9 GiB for
+        # MiMo) briefly needs more memory than an 8 GB card has free next to the desktop.
+        # Everything loads onto the GPU first (embeddings and output head are moved or replaced right
+        # after), so loading briefly needs about 6.1 GiB free for MiMo. A "cpu" device-map entry does
+        # not help: the loader's dispatch moves such modules back onto the GPU.
         kwargs["device_map"] = {"": 0}
         kwargs["quantization_config"] = BitsAndBytesConfig(
             load_in_4bit=True,

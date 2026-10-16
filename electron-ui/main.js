@@ -80,9 +80,14 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     // The interface needs no camera, microphone, location or notifications.
     session.defaultSession.setPermissionRequestHandler((_contents, _permission, decide) => decide(false));
-    // "Save image" downloads a generated picture: ask where to put it.
+    // Downloads (a generated picture, or a chat exported as Markdown): ask where to put it.
     session.defaultSession.on('will-download', (_event, item) => {
-      item.setSaveDialogOptions({ title: 'Save generated image', defaultPath: path.join(app.getPath('pictures'), item.getFilename()) });
+      const name = item.getFilename();
+      const chat = name.toLowerCase().endsWith('.md');
+      item.setSaveDialogOptions({
+        title: chat ? 'Export chat' : 'Save generated image',
+        defaultPath: path.join(app.getPath(chat ? 'documents' : 'pictures'), name),
+      });
     });
     createWindow();
   });

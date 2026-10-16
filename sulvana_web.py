@@ -7,6 +7,8 @@ import base64
 import http.client
 import json
 import mimetypes
+import os
+import time
 import re
 import subprocess
 import sys
@@ -20,13 +22,58 @@ from urllib.parse import parse_qs, urlsplit
 ROOT = Path("/home/tanchjim/Documents/Codex/ai-workspace")
 sys.path.insert(0, str(ROOT))
 import sulvana_code  # noqa: E402  (undo of coding-mode edits)
+from sulvana_worker import die_with_parent  # noqa: E402
 DIST = ROOT / "sulvana-ui/dist"
 IMAGE_DIR = ROOT / "runs/z-image"
+PROFILE_FILE = ROOT / ".runtime" / "sulvana-model.json"
+FEEDBACK_FILE = ROOT / "datasets" / "feedback" / "corrections.jsonl"
+KHMER_ADAPTER = ROOT / "runs/finetune/mimo-khmer-01/sulvana-khmer-mimo-01.gguf"
+KHMER_ADAPTER_V2 = ROOT / "runs/finetune/mimo-khmer-v2/mimo-khmer-v2.gguf"
+# The models Sulvana can run, chosen in Settings. Each is a set of environment variables for the engine.
+PROFILES = {
+    "sulvana-2.0": {"label": "Sulvana 2.0", "detail": "MiMo-V2.6 9B · fast, Khmer and coding",
+                    "file": ROOT / "models/MiMo-V2.6-Distill-Qwen-9B/MiMo-V2.6-Distill-Qwen-9B-Q4_K_M.gguf",
+                    "env": {"SULVANA_BASE": "mimo"}},
+    # Two WKH Labs adapters, routed per message: v2 (Gemini-written Khmer) when the reply is Khmer,
+    # v1 for other languages. Measured 82.3% / 82.5% on the two Khmer benchmarks (v1 alone: 81.6 / 81.3).
+    "sulvana-2.0-khmer": {"label": "Sulvana 2.0 + Khmer adapters", "detail": "MiMo with the WKH Labs Khmer fine-tunes (v2 for Khmer, v1 for English)",
+                          "file": KHMER_ADAPTER_V2,
+                          "env": {"SULVANA_BASE": "mimo", "SULVANA_LORA_ADAPTER": f"{KHMER_ADAPTER},{KHMER_ADAPTER_V2}",
+                                  "SULVANA_LORA_SCALE": "0.3,0", "SULVANA_LORA_KHMER": "0,0.3", "SULVANA_LORA_OTHER": "0.3,0"}},
+    "sulvana-1.0-code": {"label": "Sulvana 1.0 Code", "detail": "Qwen3.8 27B · strongest coder, slow, English",
+                         "file": ROOT / "models/Qwen3.8-27B/Qwen3.8-27B-UD-Q4_K_M.gguf", "env": {"SULVANA_BASE": "code"}},
+}
+
+
+DEFAULT_PROFILE = "sulvana-2.0-khmer"   # the best-measured model; Settings can switch to any other
+
+
+def saved_profile() -> str | None:
+    try:
+        name = json.loads(PROFILE_FILE.read_text())["profile"]
+    except (OSError, ValueError, KeyError):
+        name = DEFAULT_PROFILE
+    if name in PROFILES and PROFILES[name]["file"].is_file():
+        return name
+    return "sulvana-2.0" if PROFILES["sulvana-2.0"]["file"].is_file() else None
+
+
+def profile_env(name: str | None) -> dict[str, str]:
+    """The engine's environment: the launcher's own variables, overridden by the model chosen in Settings."""
+    env = dict(os.environ)
+    if name:
+        for key in ("SULVANA_BASE", "SULVANA_LORA_ADAPTER", "SULVANA_LORA_SCALE"):
+            env.pop(key, None)
+        env.update(PROFILES[name]["env"])
+    return env
 
 
 class LocalEngine:
-    def __init__(self) -> None:
-        self.process = subprocess.Popen([sys.executable, "-u", str(ROOT / "qwen_server.py")], cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    def __init__(self, profile: str | None = None) -> None:
+        self.profile = profile
+        self.process = subprocess.Popen([sys.executable, "-u", str(ROOT / "qwen_server.py")], cwd=ROOT, text=True,
+                                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=profile_env(profile),
+                                        preexec_fn=die_with_parent)
         line = self.process.stdout.readline().strip()
         parts = line.split("\t")
         if len(parts) != 3 or parts[0] != "QWEN_SERVER_READY":
@@ -48,8 +95,23 @@ class LocalEngine:
 def main() -> None:
     if not (DIST / "index.html").is_file():
         raise SystemExit("Build the UI first with: npm run build")
-    engine = LocalEngine()
+    engine = LocalEngine(saved_profile())
     engine_lock = threading.Lock()
+
+    def switch_engine(name: str) -> int:
+        """Replace the running engine with another model; the choice is remembered."""
+        nonlocal engine
+        with engine_lock:
+            engine.stop()
+            try: engine.process.wait(timeout=30)
+            except subprocess.TimeoutExpired: engine.process.kill()
+            PROFILE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            PROFILE_FILE.write_text(json.dumps({"profile": name}) + "\n")
+            try:
+                engine = LocalEngine(name)
+            except (OSError, RuntimeError):
+                return 502
+            return 204
 
     def restart_engine() -> int:
         """Recover from a fatal engine: reload the model, or replace the bridge process if it died."""
@@ -65,7 +127,7 @@ def main() -> None:
                     try: engine.process.wait(timeout=10)
                     except subprocess.TimeoutExpired: engine.process.kill()
             try:
-                engine = LocalEngine()
+                engine = LocalEngine(engine.profile)
             except (OSError, RuntimeError):
                 return 502
             return 204
@@ -114,6 +176,12 @@ def main() -> None:
         def do_GET(self) -> None:
             if not self._same_app(): return
             if self.path == "/api/status": self._status(); return
+            if self.path == "/api/models":
+                current = engine.profile or saved_profile()
+                items = [{"id": name, "label": info["label"], "detail": info["detail"],
+                          "available": info["file"].is_file() and (name != "sulvana-1.0-code" or info["file"].stat().st_size > 16_000_000_000)}
+                         for name, info in PROFILES.items()]
+                self._send(200, json.dumps({"current": current, "models": items}).encode(), "application/json"); return
             if self.path.startswith("/api/image?"):
                 name = parse_qs(urlsplit(self.path).query).get("name", [""])[0]
                 if not re.fullmatch(r"[A-Za-z0-9_.-]+\.png", name):
@@ -129,7 +197,7 @@ def main() -> None:
 
         def do_POST(self) -> None:
             if not self._same_app(): return
-            if self.path not in {"/api/chat", "/api/stop", "/api/clear", "/api/approval", "/api/restart", "/api/code/undo"}:
+            if self.path not in {"/api/chat", "/api/stop", "/api/clear", "/api/approval", "/api/restart", "/api/code/undo", "/api/model", "/api/feedback"}:
                 self._send(404, b"Not found", "text/plain"); return
             if self.path == "/api/code/undo":
                 try:
@@ -141,6 +209,40 @@ def main() -> None:
                     self._send(409, str(problem).encode(), "text/plain")
                 except (ValueError, TypeError, AttributeError, OSError) as problem:
                     self._send(400, f"Could not undo: {problem}".encode(), "text/plain")
+                return
+            if self.path == "/api/model":
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if not 1 <= length <= 256: raise ValueError("Invalid request")
+                    name = json.loads(self.rfile.read(length)).get("profile")
+                    if name not in PROFILES: raise ValueError("Unknown model")
+                    if not PROFILES[name]["file"].is_file(): raise ValueError("That model is not downloaded yet")
+                except (ValueError, TypeError, AttributeError, json.JSONDecodeError) as problem:
+                    self._send(400, str(problem).encode(), "text/plain"); return
+                code = switch_engine(name)
+                self._send(code, b"" if code == 204 else b"The model could not be started", "text/plain"); return
+            if self.path == "/api/feedback":
+                # A user-approved or user-corrected answer, saved as a training example (datasets/feedback/).
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if not 1 <= length <= 400_000: raise ValueError("Invalid feedback")
+                    item = json.loads(self.rfile.read(length))
+                    prompt, answer = str(item.get("prompt", "")).strip(), str(item.get("answer", "")).strip()
+                    rating = item.get("rating")
+                    if not prompt or not answer or rating not in {"good", "corrected"}: raise ValueError("Invalid feedback")
+                    history = [m for m in item.get("history") or [] if isinstance(m, dict) and m.get("role") in {"user", "assistant"}
+                               and isinstance(m.get("content"), str) and m["content"].strip()][-6:]
+                    record = {"messages": [*({"role": m["role"], "content": m["content"].strip()} for m in history),
+                                           {"role": "user", "content": prompt}, {"role": "assistant", "content": answer}],
+                              "meta": {"source": "user-feedback", "rating": rating, "model": str(item.get("model", ""))[:120],
+                                       "original": str(item.get("original", ""))[:20000] if rating == "corrected" else None,
+                                       "created": time.strftime("%Y-%m-%dT%H:%M:%S%z")}}
+                    FEEDBACK_FILE.parent.mkdir(parents=True, exist_ok=True)
+                    with open(FEEDBACK_FILE, "a", encoding="utf-8") as handle:
+                        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+                    self._send(204, b"", "text/plain")
+                except (ValueError, TypeError, AttributeError, json.JSONDecodeError, OSError) as problem:
+                    self._send(400, str(problem).encode(), "text/plain")
                 return
             if self.path == "/api/restart":
                 code = restart_engine()
@@ -181,7 +283,7 @@ def main() -> None:
                 prompt = str(request.get("prompt", "")).strip()
                 if not prompt: raise ValueError("Message is empty")
                 max_tokens = max(32, min(8192, int(request.get("maxTokens", 2048))))
-                temperature = max(.1, min(1.5, float(request.get("temperature", .7))))
+                temperature = max(.1, min(1.5, float(request.get("temperature", .4))))
                 language = str(request.get("language", "Auto-detect"))
                 if len(language) > 80:
                     raise ValueError("Reply language name is too long")
@@ -231,6 +333,9 @@ def main() -> None:
                 if temporary_image is not None: temporary_image.unlink(missing_ok=True)
 
     server = ThreadingHTTPServer(("127.0.0.1", 8766), Handler); server.daemon_threads = True
+    # A plain kill (SIGTERM) must still shut the engine down cleanly instead of orphaning it.
+    import signal
+    signal.signal(signal.SIGTERM, lambda *_: threading.Thread(target=server.shutdown, daemon=True).start())
     print("SULVANA_WEB_READY\thttp://127.0.0.1:8766", flush=True)
     try: server.serve_forever(poll_interval=.2)
     finally: engine.stop(); server.server_close()

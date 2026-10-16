@@ -63,7 +63,17 @@ VISION_PROJECTOR = ROOT / "models/Qwen2.5-VL-3B/mmproj-F16.gguf"
 LORA_ADAPTER_ENV = "SULVANA_LORA_ADAPTER"
 # Adapter strength: 1.0 = as trained. The Khmer adapter for MiMo scores best at about 0.3, where it
 # polishes Khmer without overriding the model's own step-by-step answers.
-LORA_SCALE = max(0.0, min(2.0, float(os.environ.get("SULVANA_LORA_SCALE", "1.0") or 1.0)))
+def _scales(name: str, default: str) -> list[float]:
+    raw = os.environ.get(name, default) or default
+    return [max(0.0, min(2.0, float(part))) for part in raw.split(",") if part.strip()]
+
+
+# Several adapters can be loaded at once (comma-separated paths), each with its strength.
+# SULVANA_LORA_KHMER / SULVANA_LORA_OTHER optionally give per-adapter strengths for messages answered
+# in Khmer and in other languages: the Khmer v2 adapter is best for Khmer, v1 for English.
+LORA_SCALE = _scales("SULVANA_LORA_SCALE", "1.0")
+LORA_KHMER = _scales("SULVANA_LORA_KHMER", "")
+LORA_OTHER = _scales("SULVANA_LORA_OTHER", "")
 # What the assistant is called, and the open model it is built on. The app shows both.
 # Sulvana 2.0 runs on MiMo; Sulvana v1 was the Dolphin version. Both are made by WKH Labs.
 MODEL_NAME = BASE["release"]
@@ -148,6 +158,10 @@ def has_runaway_repetition(text: str) -> bool:
         tail_size = width * 4
         if len(words) >= tail_size and words[-tail_size:] == words[-tail_size:-tail_size + width] * 4:
             return True
+    # Whole sentences or paragraphs repeated: the same line (40+ characters) for the third time.
+    lines = [line.strip() for line in re.split(r"[\n។]+", text) if len(line.strip()) >= 40]
+    if lines and lines.count(lines[-1]) >= 3:
+        return True
     # Khmer (like Thai or Chinese) is written without spaces, so a loop never shows up as repeated
     # words. Look for the same run of characters five times in a row instead. Runs without a letter
     # (table rules, dotted lines) are legitimate.
@@ -183,18 +197,29 @@ def reply_target(text: str, preference: str) -> tuple[str, bool]:
     return "the same language this message is written in", False
 
 
-def lora_adapter() -> Path | None:
-    """Return the GGUF LoRA adapter to apply on top of Dolphin, if one was explicitly requested.
+def die_with_parent() -> None:
+    """Run in a child before exec: Linux kills it if its parent dies, so no engine is left holding the GPU."""
+    try:
+        import ctypes, signal
+        ctypes.CDLL("libc.so.6", use_errno=True).prctl(1, signal.SIGTERM)   # PR_SET_PDEATHSIG
+    except (OSError, AttributeError):
+        pass
 
-    The adapter is applied by llama-server at load time; the Dolphin model file is never modified.
+
+def lora_adapters() -> list[Path]:
+    """The GGUF LoRA adapters to apply on top of the base model, if any were requested.
+
+    They are applied by llama-server at load time; the model file itself is never modified.
     """
-    raw = os.environ.get(LORA_ADAPTER_ENV, "").strip()
-    if not raw:
-        return None
-    adapter = Path(raw).expanduser().resolve()
-    if adapter.suffix.lower() != ".gguf" or not adapter.is_file():
-        raise FileNotFoundError(f"{LORA_ADAPTER_ENV} must point to a GGUF LoRA adapter file: {adapter}")
-    return adapter
+    adapters = []
+    for raw in os.environ.get(LORA_ADAPTER_ENV, "").split(","):
+        if not raw.strip():
+            continue
+        adapter = Path(raw.strip()).expanduser().resolve()
+        if adapter.suffix.lower() != ".gguf" or not adapter.is_file():
+            raise FileNotFoundError(f"{LORA_ADAPTER_ENV} must point to GGUF LoRA adapter files: {adapter}")
+        adapters.append(adapter)
+    return adapters
 
 
 def reply_language(value: object) -> str:
@@ -383,8 +408,11 @@ class ModelWorker:
             raise FileNotFoundError(f"Inference runtime missing: {LLAMA_SERVER}")
         if self.server_process is not None and self.server_process.poll() is None:
             return
-        adapter = lora_adapter()
-        self.adapter = adapter
+        adapters = lora_adapters()
+        self.adapters = adapters
+        scales = (LORA_SCALE * len(adapters))[:len(adapters)] if len(LORA_SCALE) == 1 else LORA_SCALE
+        if len(scales) != len(adapters):
+            raise ValueError("SULVANA_LORA_SCALE needs one strength per adapter")
         self._emit("status", f"Loading {ENGINE_NAME} onto the GPU…")
         with socket.socket() as reserved:
             reserved.bind(("127.0.0.1", 0))
@@ -395,12 +423,12 @@ class ModelWorker:
             "--ctx-size", str(CONTEXT_TOKENS), "--predict", str(MAX_REPLY_TOKENS), "--flash-attn", "auto",
             # V tolerates 4-bit storage far better than K; this keeps the 64K cache about 25% smaller.
             "--cache-type-k", "q8_0", "--cache-type-v", "q4_0", "--fit", "on", "--fit-target", str(GPU_HEADROOM_MB), "--parallel", "1", "--no-webui",
-            *((["--lora", str(adapter)] if LORA_SCALE == 1.0 else ["--lora-scaled", f"{adapter}:{LORA_SCALE}"]) if adapter else []),
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, text=True)
+            *(["--lora-scaled", ",".join(f"{path}:{scale}" for path, scale in zip(adapters, scales))] if adapters else []),
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, text=True, preexec_fn=die_with_parent)
         model = f"{MODEL_NAME} • {BASE_MODEL_NAME}"
-        if adapter:
+        if adapters:
             # Shown in the app so a test adapter is never active without the user seeing it.
-            model += " + LoRA " + (re.sub(r"[^A-Za-z0-9._-]+", "-", adapter.stem)[:40] or "adapter")
+            model += " + LoRA " + "+".join(re.sub(r"[^A-Za-z0-9._-]+", "-", path.stem)[:40] or "adapter" for path in adapters)
         for _ in range(180):
             if self.server_process.poll() is not None:
                 raise RuntimeError(f"{ENGINE_NAME}'s inference engine stopped while starting.")
@@ -475,6 +503,8 @@ class ModelWorker:
         if native:
             # MiMo thinks only when asked; llama-server then returns the thinking as reasoning_content.
             payload["chat_template_kwargs"] = {"enable_thinking": reasoning}
+        if settings.get("lora"):
+            payload["lora"] = settings["lora"]   # adapter strengths chosen for this message's language
         body = json.dumps(payload).encode()
         request = urllib.request.Request(f"{self.endpoint}/v1/chat/completions", data=body,
                                          headers={"Content-Type": "application/json"}, method="POST")
@@ -586,9 +616,9 @@ class ModelWorker:
         calls: dict[int, dict] = {}
         if BASE["native_thinking"]:
             payload["chat_template_kwargs"] = {"enable_thinking": bool(settings.get("reasoning"))}
-        if getattr(self, "adapter", None):
-            # The Khmer adapter is trained on chat, not code: coding runs on the unmodified model.
-            payload["lora"] = [{"id": 0, "scale": 0.0}]
+        if getattr(self, "adapters", None):
+            # The Khmer adapters are trained on chat, not code: coding runs on the unmodified model.
+            payload["lora"] = [{"id": index, "scale": 0.0} for index in range(len(self.adapters))]
         body = json.dumps(payload).encode()
         request = urllib.request.Request(f"{self.endpoint}/v1/chat/completions", data=body,
                                          headers={"Content-Type": "application/json"}, method="POST")
@@ -775,6 +805,9 @@ class ModelWorker:
 
     def _generate(self, text: str, settings: dict) -> None:
         language, in_khmer = reply_target(text, reply_language(settings.get("language")))
+        routed = LORA_KHMER if in_khmer else LORA_OTHER
+        if getattr(self, "adapters", None) and len(routed) == len(self.adapters):
+            settings = {**settings, "lora": [{"id": index, "scale": scale} for index, scale in enumerate(routed)]}
         if settings.get("code_root") is not None and not text.startswith("/"):
             self._code(text, settings, language)
             return
@@ -867,11 +900,18 @@ class ModelWorker:
         if pretool is not None and not self.stop_event.is_set():
             add_result(*pretool)
             tool_count = 1
-        reply, timings = "", {}
+        reply, timings, retried = "", {}, False
         for _ in range(3):
             if self.stop_event.is_set():
                 break
             reply, timings, looped, tool_call = self._stream_completion(self._context_messages(working, settings), settings)
+            if looped and not retried:
+                # A reply stuck repeating itself is thrown away and written once more, a little less predictably.
+                retried = True
+                self.stop_event.clear(); self.reply_truncated = False
+                self._emit("retry")
+                settings = {**settings, "temperature": min(1.0, settings["temperature"] + 0.3)}
+                reply, timings, looped, tool_call = self._stream_completion(self._context_messages(working, settings), settings)
             if tool_call is None:
                 break
             if blocked_tool:

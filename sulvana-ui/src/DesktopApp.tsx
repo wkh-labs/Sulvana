@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { ArrowUp, Brain, Check, ChevronRight, ChevronsDown, Code, Copy, Download, FilePen, FilePlus, FileText, FolderCode, FolderOpen, Globe, Image as ImageIcon, ImagePlus, Lightbulb, MessageCircle, Paperclip, RotateCcw, Search, Settings, ShieldCheck, Sparkles, Square, SquarePen, SquareTerminal, Trash2, TriangleAlert, Undo2, Wrench, X, type LucideIcon } from 'lucide-react';
+import { ArrowDown, ArrowUp, Brain, FileDown, RefreshCw, Check, ChevronRight, ChevronsDown, Code, Copy, Download, FilePen, FilePlus, FileText, FolderCode, FolderOpen, Globe, Image as ImageIcon, ImagePlus, Lightbulb, PencilLine, ThumbsUp, MessageCircle, Paperclip, RotateCcw, Search, Settings, ShieldCheck, Sparkles, Square, SquarePen, SquareTerminal, Trash2, TriangleAlert, Undo2, Wrench, X, type LucideIcon } from 'lucide-react';
 import { Markdown } from './markdown';
 import { WKH_MARK_DARK, WKH_MARK_LIGHT } from './wkhLogo';
 import './desktop.css';
@@ -41,16 +41,19 @@ type Message = {
   parts?: Part[];
   /** Coding mode: the task's id (for Undo) and the files it changed. */
   code?: CodeTask;
+  /** The user rated or corrected this reply; it was saved as a training example. */
+  feedback?: 'good' | 'corrected';
 };
+type ModelChoice = { id: string; label: string; detail: string; available: boolean };
 type CodeStep = { id: string; tool: string; title: string; status: 'running' | 'done' | 'error' | 'denied'; detail?: string };
 type Part = { kind: 'text'; text: string } | { kind: 'step'; step: CodeStep };
 type CodeTask = { task: string; root: string; changed: string[]; undone?: boolean };
 /** A web result (url) or a section of a local Markdown note (file). */
 type Source = { title: string; url?: string; file?: string };
-type Conversation = { id: string; title: string; messages: Message[] };
-type Preferences = { temperature: number; maxTokens: number; language: string; theme: 'dark' | 'light'; reasoning: boolean; code: boolean; codeRoot: string };
+type Conversation = { id: string; title: string; messages: Message[]; updatedAt?: number };
+type Preferences = { temperature: number; maxTokens: number; language: string; theme: 'dark' | 'light'; reasoning: boolean; code: boolean; codeRoot: string; textSize: TextSize };
 type EngineStatus = { state: string; detail: string; approval?: ApprovalRequest | null };
-type Dialog = 'settings' | 'tools' | 'delete' | null;
+type Dialog = 'settings' | 'tools' | 'delete' | 'improve' | null;
 type StreamPayload = { prompt: string; image?: string; history: { role: string; content: string }[]; maxTokens: number; temperature: number; language: string; search?: boolean; reasoning?: boolean; code?: { root: string } };
 type ApprovalRequest = { id: string; command: string; reason: string; timeout_seconds: number; kind?: 'read' | 'edit' | 'write' | 'command'; title?: string; diff?: string; allow_all?: boolean };
 type Attachment = { name: string; data: string };
@@ -61,7 +64,8 @@ const STORAGE = 'sulvana.desktop.v1';
 const LANGUAGES = ['Auto', 'ខ្មែរ (Khmer)', 'English', '中文 (Chinese)', 'ไทย (Thai)', 'Tiếng Việt (Vietnamese)', 'Français', '日本語 (Japanese)', 'العربية (Arabic)'];
 // Khmer needs roughly 1.7 tokens per character, so the limits are generous.
 const TOKEN_LIMITS = [512, 1024, 2048, 4096, 8192];
-const DEFAULT_PREFERENCES: Preferences = { temperature: 0.7, maxTokens: 2048, language: 'Auto', theme: 'dark', reasoning: false, code: false, codeRoot: '' };
+type TextSize = 'small' | 'default' | 'large';
+const DEFAULT_PREFERENCES: Preferences = { temperature: 0.4, maxTokens: 2048, language: 'Auto', theme: 'dark', reasoning: false, code: false, codeRoot: '', textSize: 'default' };
 const KHMER = /[\u1780-\u17FF]/;
 const NOTE_TEXT: Record<Note, string> = {
   error: 'Something went wrong.',
@@ -70,7 +74,7 @@ const NOTE_TEXT: Record<Note, string> = {
   interrupted: 'Interrupted when Sulvana closed.',
 };
 const createId = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-const newConversation = (): Conversation => ({ id: createId(), title: 'New chat', messages: [] });
+const newConversation = (): Conversation => ({ id: createId(), title: 'New chat', messages: [], updatedAt: Date.now() });
 
 /** Chats saved by earlier versions stored placeholders as ordinary reply text. */
 function legacyNote(text: string): Note | undefined {
@@ -101,6 +105,7 @@ function cleanMessage(raw: unknown): Message | null {
   if (item.plain === true) message.plain = true;
   if (typeof item.reasoning === 'string' && item.reasoning) message.reasoning = item.reasoning;
   if (item.cut === true) message.cut = true;
+  if (item.feedback === 'good' || item.feedback === 'corrected') message.feedback = item.feedback;
   if (Array.isArray(item.sources)) message.sources = cleanSources(item.sources);
   if (Array.isArray(item.parts)) {
     const parts = item.parts.filter((part): part is Part => !!part && ((part.kind === 'text' && typeof part.text === 'string')
@@ -122,7 +127,8 @@ function cleanMessage(raw: unknown): Message | null {
 
 function cleanPreferences(raw: unknown): Preferences {
   const saved = (raw && typeof raw === 'object' ? raw : {}) as Partial<Preferences>;
-  const temperature = Number(saved.temperature);
+  // 0.7 was the old default; lower creativity gives fewer invented details in Khmer answers.
+  const temperature = Number(saved.temperature) === 0.7 ? DEFAULT_PREFERENCES.temperature : Number(saved.temperature);
   return {
     temperature: Number.isFinite(temperature) ? Math.min(1.5, Math.max(0.1, temperature)) : DEFAULT_PREFERENCES.temperature,
     maxTokens: TOKEN_LIMITS.includes(Number(saved.maxTokens)) ? Number(saved.maxTokens) : DEFAULT_PREFERENCES.maxTokens,
@@ -131,6 +137,7 @@ function cleanPreferences(raw: unknown): Preferences {
     reasoning: saved.reasoning === true,
     code: saved.code === true,
     codeRoot: typeof saved.codeRoot === 'string' ? saved.codeRoot.slice(0, 1000) : '',
+    textSize: saved.textSize === 'small' || saved.textSize === 'large' ? saved.textSize : 'default',
   };
 }
 
@@ -147,6 +154,7 @@ function restore(): { conversations: Conversation[]; activeId: string; preferenc
         id: chat.id,
         title: typeof chat.title === 'string' && chat.title.trim() ? chat.title : 'New chat',
         messages: chat.messages.map(cleanMessage).filter((message): message is Message => message !== null),
+        updatedAt: typeof chat.updatedAt === 'number' ? chat.updatedAt : undefined,
       }));
     if (!conversations.length) return { ...fallback, preferences };
     return {
@@ -356,6 +364,32 @@ function StepCard({ step }: { step: CodeStep }) {
   </div>;
 }
 
+/** Sidebar groups by last activity, like most chat apps. */
+function dateGroup(time?: number): string {
+  if (!time) return 'Earlier';
+  const day = 86_400_000, start = new Date(); start.setHours(0, 0, 0, 0);
+  if (time >= start.getTime()) return 'Today';
+  if (time >= start.getTime() - day) return 'Yesterday';
+  if (time >= start.getTime() - 7 * day) return 'Previous 7 days';
+  return 'Earlier';
+}
+const GROUP_ORDER = ['Today', 'Yesterday', 'Previous 7 days', 'Earlier'];
+
+/** A conversation as a Markdown document (images and tool steps summarised). */
+function conversationMarkdown(chat: Conversation): string {
+  const lines = [`# ${chat.title}`, '', `_Exported from Sulvana (WKH Labs) on ${new Date().toLocaleString()}_`, ''];
+  for (const message of chat.messages) {
+    if (message.pending) continue;
+    lines.push(`## ${message.role === 'user' ? 'You' : 'Sulvana'}`, '');
+    if (message.attachment) lines.push(`_Attached image: ${message.attachment}_`, '');
+    if (message.parts) for (const part of message.parts) lines.push(part.kind === 'text' ? part.text.trim() : `- ${part.step.title} (${part.step.status})`);
+    else lines.push(message.text || NOTE_TEXT[message.note || 'empty']);
+    if (message.sources?.length) lines.push('', 'Sources: ' + message.sources.map(source => source.url || source.file).join(', '));
+    lines.push('');
+  }
+  return lines.join('\n');
+}
+
 const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /** Modal dialog with the keyboard behaviour people expect: focus moves in, Tab stays in, Escape closes, focus returns. */
@@ -420,6 +454,12 @@ export default function DesktopApp() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [restarting, setRestarting] = useState(false);
   const [searchOn, setSearchOn] = useState(false);
+  const [models, setModels] = useState<{ current: string | null; models: ModelChoice[] } | null>(null);
+  const [improving, setImproving] = useState<{ id: string; text: string } | null>(null);
+  const [query, setQuery] = useState('');
+  const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null);
+  const [atBottom, setAtBottom] = useState(true);
+  const searchBox = useRef<HTMLInputElement>(null);
   const workspace = useRef<HTMLElement>(null);
   const composerWrap = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -469,6 +509,22 @@ export default function DesktopApp() {
   useEffect(() => { if (followReply.current) bottom.current?.scrollIntoView({ block: 'end' }); }, [active.messages]);
   useEffect(() => { followReply.current = true; bottom.current?.scrollIntoView({ block: 'end' }); }, [activeId]);
   useEffect(() => { composer.current?.focus(); }, []);
+  useEffect(() => { document.documentElement.dataset.textSize = preferences.textSize; }, [preferences.textSize]);
+  // Shortcuts: Ctrl+N new chat, Ctrl+K search chats, Ctrl+, settings, Ctrl+Shift+E export.
+  const shortcuts = useRef<(event: KeyboardEvent) => void>(() => undefined);
+  shortcuts.current = (event: KeyboardEvent) => {
+    if (!(event.ctrlKey || event.metaKey) || dialog || approval) return;
+    const key = event.key.toLowerCase();
+    if (key === 'n' && !event.shiftKey) { event.preventDefault(); startChat(); }
+    else if (key === 'k') { event.preventDefault(); searchBox.current?.focus(); searchBox.current?.select(); }
+    else if (key === ',') { event.preventDefault(); setDialog('settings'); }
+    else if (key === 'e' && event.shiftKey) { event.preventDefault(); exportChat(); }
+  };
+  useEffect(() => {
+    const listener = (event: KeyboardEvent) => shortcuts.current(event);
+    window.addEventListener('keydown', listener);
+    return () => window.removeEventListener('keydown', listener);
+  }, []);
   // The composer floats over the conversation, so the list needs to know how much room it takes.
   useLayoutEffect(() => {
     const node = composerWrap.current;
@@ -479,12 +535,23 @@ export default function DesktopApp() {
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
-  useLayoutEffect(() => {
+  // Grow the message box with its text (up to 200 px). Measured again once fonts have loaded and on
+  // resize: a measurement taken before layout settles is wrong and would stick until the user typed.
+  const fitComposer = useRef(() => undefined as void);
+  fitComposer.current = () => {
     const field = composer.current;
     if (!field) return;
     field.style.height = 'auto';
     field.style.height = Math.min(field.scrollHeight, 200) + 'px';
-  }, [input]);
+  };
+  useLayoutEffect(() => { fitComposer.current(); }, [input]);
+  useEffect(() => {
+    const fit = () => fitComposer.current();
+    const frame = requestAnimationFrame(fit);
+    document.fonts?.ready.then(fit).catch(() => undefined);
+    window.addEventListener('resize', fit);
+    return () => { cancelAnimationFrame(frame); window.removeEventListener('resize', fit); };
+  }, []);
 
   // The engine is polled faster while it is busy or starting, so the composer never waits on a stale state.
   useEffect(() => {
@@ -528,6 +595,23 @@ export default function DesktopApp() {
       ? { ...chat, messages: chat.messages.map(message => message.id === id ? change(message) : message) }
       : chat));
   };
+
+  function saveRename() {
+    if (!renaming) return;
+    const title = renaming.title.trim().slice(0, 80);
+    if (title) setConversations(previous => previous.map(chat => chat.id === renaming.id ? { ...chat, title } : chat));
+    setRenaming(null);
+  }
+
+  function exportChat() {
+    if (!active.messages.length) { setNotice({ kind: 'info', text: 'This conversation is empty, so there is nothing to export.' }); return; }
+    const blob = new Blob([conversationMarkdown(active)], { type: 'text/markdown;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = (active.title.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'Sulvana chat').slice(0, 60) + '.md';
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(link.href), 10_000);
+  }
 
   function selectChat(id: string) {
     setActiveId(id);
@@ -648,6 +732,42 @@ export default function DesktopApp() {
     }
   }
 
+  // Settings: which model the engine runs. Switching restarts the engine with the other model.
+  useEffect(() => {
+    if (dialog !== 'settings') return;
+    fetch('/api/models', { cache: 'no-store' }).then(r => r.json()).then(setModels).catch(() => setModels(null));
+  }, [dialog]);
+
+  async function switchModel(id: string) {
+    const choice = models?.models.find(m => m.id === id);
+    if (!choice || !choice.available || busy) return;
+    setModels(current => current ? { ...current, current: id } : current);
+    setNotice({ kind: 'info', text: `Switching to ${choice.label}… this takes about a minute${id === 'sulvana-1.0-code' ? '. It answers slowly: it is a 27B model running mostly from system memory' : ''}.` });
+    try {
+      const response = await fetch('/api/model', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profile: id }) });
+      if (!response.ok) throw new Error((await response.text()) || 'The model could not be started.');
+      setModelDetail('');
+    } catch (cause) {
+      setNotice({ kind: 'error', text: cause instanceof Error ? cause.message : 'The model could not be started.' });
+    } finally { pollNow.current(); }
+  }
+
+  /** Save a reply (as it is, or corrected by the user) as a training example in datasets/feedback/. */
+  async function sendFeedback(message: Message, rating: 'good' | 'corrected', answer: string) {
+    const position = active.messages.findIndex(item => item.id === message.id);
+    const request = position > 0 ? active.messages[position - 1] : undefined;
+    if (!request || request.role !== 'user') return;
+    try {
+      const response = await fetch('/api/feedback', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: request.text, answer, rating, original: message.text, model: modelDetail, history: historyFor(active.messages.slice(0, position - 1)) }),
+      });
+      if (!response.ok) throw new Error();
+      updateMessage(active.id, message.id, current => ({ ...current, feedback: rating, text: rating === 'corrected' ? answer : current.text }));
+      setNotice({ kind: 'info', text: rating === 'good' ? 'Saved as a good example for training.' : 'Your correction was saved for training.' });
+    } catch { setNotice({ kind: 'error', text: 'Could not save that example.' }); }
+  }
+
   async function restartEngine() {
     if (restarting) return;
     setRestarting(true);
@@ -697,7 +817,15 @@ export default function DesktopApp() {
     focusComposer();
   }
 
-  async function send(override?: string) {
+  /** Ask again: drop the last reply (and its request) and send the same request once more. */
+  function regenerate(reply: Message) {
+    const position = active.messages.findIndex(message => message.id === reply.id);
+    const request = position > 0 ? active.messages[position - 1] : undefined;
+    if (!request || request.role !== 'user' || busy) return;
+    void send(request.text, request.id);
+  }
+
+  async function send(override?: string, replaceFrom?: string) {
     const draft = override ?? input;
     const attachment = override === undefined ? attached : null;
     const prompt = draft.trim() || (attachment ? 'Describe this image.' : '');
@@ -710,7 +838,10 @@ export default function DesktopApp() {
     if (/^\/image\s*$/i.test(prompt)) { setNotice({ kind: 'error', text: 'Describe the image you want after /image.' }); return; }
     if (attachment && /^\/image\b/i.test(prompt)) { setNotice({ kind: 'error', text: 'Send the attached image separately from an /image request.' }); return; }
     const chatId = active.id;
-    const firstMessage = active.messages.length === 0;
+    // Regenerating replaces the exchange from `replaceFrom` onwards.
+    const cutAt = replaceFrom ? active.messages.findIndex(message => message.id === replaceFrom) : -1;
+    const earlier = cutAt >= 0 ? active.messages.slice(0, cutAt) : active.messages;
+    const firstMessage = earlier.length === 0;
     let kind: RequestKind = attachment ? 'vision' : /^\/image\b/i.test(prompt) ? 'image' : 'chat';
     const coding = preferences.code && kind === 'chat' && !prompt.startsWith('/');
     if (coding && !preferences.codeRoot) {
@@ -727,7 +858,7 @@ export default function DesktopApp() {
     const payload: StreamPayload = {
       prompt,
       image: attachment?.data,
-      history: historyFor(active.messages),
+      history: historyFor(earlier),
       maxTokens: preferences.maxTokens,
       temperature: preferences.temperature,
       language: preferences.language.trim() || 'Auto',
@@ -736,7 +867,8 @@ export default function DesktopApp() {
       code: coding ? { root: preferences.codeRoot } : undefined,
     };
     setConversations(previous => previous.map(chat => chat.id === chatId
-      ? { ...chat, title: chat.messages.length ? chat.title : prompt.replace(/^\/image\s*/i, '').slice(0, 36) || 'New chat', messages: [...chat.messages, user, assistant] }
+      ? { ...chat, updatedAt: Date.now(), title: chat.messages.length ? chat.title : prompt.replace(/^\/image\s*/i, '').slice(0, 36) || 'New chat',
+          messages: [...(cutAt >= 0 ? chat.messages.slice(0, cutAt) : chat.messages), user, assistant] }
       : chat));
     if (override === undefined) { setInput(''); setAttached(null); }
     setNotice(null); setSpeed(null); setSearchOn(false);
@@ -774,6 +906,8 @@ export default function DesktopApp() {
           parts = at >= 0 ? parts.map((part, index) => index === at ? { kind: 'step', step } : part) : [...parts, { kind: 'step', step }];
           activity = step.status === 'running' ? step.title + '…' : 'Thinking…';
         }
+        // The reply started repeating itself; the app is writing it again from the start.
+        if (event === 'x') { reply = ''; thoughts = ''; activity = 'Rewriting the answer…'; }
         if (event === 'r') { thoughts += data; activity = 'Reasoning…'; }
         if (event === 's') {
           const found = JSON.parse(data);
@@ -828,7 +962,7 @@ export default function DesktopApp() {
       if (!cancelled && cause instanceof HttpError && cause.status === 409) {
         // Nothing was generated: give the draft back instead of leaving a failed exchange in the chat.
         setConversations(previous => previous.map(chat => chat.id === chatId
-          ? { ...chat, title: firstMessage ? 'New chat' : chat.title, messages: chat.messages.filter(message => message.id !== user.id && message.id !== assistant.id) }
+          ? { ...chat, title: firstMessage ? 'New chat' : chat.title, messages: cutAt >= 0 ? active.messages : chat.messages.filter(message => message.id !== user.id && message.id !== assistant.id) }
           : chat));
         if (override === undefined) setInput(current => current || draft);
         setAttached(current => current || attachment);
@@ -859,7 +993,7 @@ export default function DesktopApp() {
     : engineDown ? 'Sulvana’s engine is not running.'
     : status.state === 'loading' ? 'Loading the model — you can start typing.'
       : streaming && streaming.chatId !== active.id ? 'Sulvana is replying in another conversation.'
-        : 'Enter to send · Shift+Enter for a new line';
+        : 'Sulvana can make mistakes. Check important facts. · Sulvana អាចឆ្លើយខុស សូមផ្ទៀងផ្ទាត់ព័ត៌មានសំខាន់ៗ។';
   const rangeFill = `${((preferences.temperature - 0.1) / 1.4) * 100}%`;
 
   return <div className="shell">
@@ -868,16 +1002,40 @@ export default function DesktopApp() {
         <div className="brand"><Logo size={32} /><div><strong>Sulvana</strong><small>On this device</small></div></div>
         <button type="button" className="new-chat" onClick={startChat} title="New chat" aria-label="New chat"><SquarePen size={17} /></button>
       </div>
-      <div className="sidebar-heading" id="conversations-heading">Conversations</div>
-      <nav className="conversation-list" aria-labelledby="conversations-heading">{conversations.map(chat => {
-        const live = streaming?.chatId === chat.id;
-        return <div key={chat.id} className={'conversation' + (chat.id === activeId ? ' selected' : '')}>
-          <button type="button" onClick={() => selectChat(chat.id)} aria-current={chat.id === activeId ? 'true' : undefined} title={chat.title}>
-            <MessageCircle size={15} /><span>{chat.title}</span>{live && <i className="live-dot" role="img" aria-label="Replying" />}
-          </button>
-          <button type="button" className="delete-chat" aria-label={`Delete ${chat.title}`} title={live ? 'Wait for the reply to finish' : 'Delete conversation'} disabled={live} onClick={() => { setDeleteId(chat.id); setDialog('delete'); }}><Trash2 size={14} /></button>
-        </div>;
-      })}</nav>
+      <div className="sidebar-search">
+        <Search size={14} aria-hidden="true" />
+        <input ref={searchBox} type="search" placeholder="Search chats  (Ctrl+K)" aria-label="Search conversations" value={query}
+          onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === 'Escape') { setQuery(''); focusComposer(); } }} />
+      </div>
+      <nav className="conversation-list" aria-label="Conversations">{(() => {
+        const needle = query.trim().toLocaleLowerCase();
+        const shown = conversations.filter(chat => !needle || chat.title.toLocaleLowerCase().includes(needle)
+          || chat.messages.some(message => message.text.toLocaleLowerCase().includes(needle)));
+        if (!shown.length) return <p className="sidebar-empty">No conversation matches “{query}”.</p>;
+        const groups = new Map<string, Conversation[]>();
+        for (const chat of [...shown].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))) {
+          const name = dateGroup(chat.updatedAt);
+          groups.set(name, [...(groups.get(name) || []), chat]);
+        }
+        return GROUP_ORDER.filter(name => groups.has(name)).map(name => <section key={name} aria-label={name}>
+          <div className="sidebar-heading">{name}</div>
+          {groups.get(name)!.map(chat => {
+            const live = streaming?.chatId === chat.id;
+            return <div key={chat.id} className={'conversation' + (chat.id === activeId ? ' selected' : '')}>
+              {renaming?.id === chat.id
+                ? <input className="rename-input" autoFocus value={renaming.title} aria-label="Conversation name" maxLength={80}
+                    onChange={event => setRenaming({ id: chat.id, title: event.target.value })} onBlur={saveRename}
+                    onKeyDown={event => { if (event.key === 'Enter') saveRename(); else if (event.key === 'Escape') setRenaming(null); }} />
+                : <button type="button" onClick={() => selectChat(chat.id)} onDoubleClick={() => setRenaming({ id: chat.id, title: chat.title })}
+                    aria-current={chat.id === activeId ? 'true' : undefined} title={chat.title + ' (double-click to rename)'}>
+                    <MessageCircle size={15} /><span>{chat.title}</span>{live && <i className="live-dot" role="img" aria-label="Replying" />}
+                  </button>}
+              <button type="button" className="delete-chat" aria-label={`Rename ${chat.title}`} title="Rename" onClick={() => setRenaming({ id: chat.id, title: chat.title })}><PencilLine size={13} /></button>
+              <button type="button" className="delete-chat" aria-label={`Delete ${chat.title}`} title={live ? 'Wait for the reply to finish' : 'Delete conversation'} disabled={live} onClick={() => { setDeleteId(chat.id); setDialog('delete'); }}><Trash2 size={14} /></button>
+            </div>;
+          })}
+        </section>);
+      })()}</nav>
       <div className="sidebar-footer"><button type="button" onClick={() => setDialog('tools')}><ShieldCheck size={15} /> Tools</button><div className="maker" title="Sulvana is made by WKH Labs: Wisdom · Khmer · Heritage"><img src={preferences.theme === 'light' ? WKH_MARK_LIGHT : WKH_MARK_DARK} alt="" /><div><strong>WKH Labs</strong><span>Wisdom · Khmer · Heritage</span></div></div></div>
     </aside>
     <main className="workspace" ref={workspace}>
@@ -890,12 +1048,13 @@ export default function DesktopApp() {
           <span className={'status-dot ' + (ready ? 'ready' : engineDown ? 'bad' : 'busy')} aria-hidden="true" />
           <span className="engine-state" role="status" title={status.detail}>{statusText}</span>
           {speed !== null && <span className="speed" title="Speed of the last reply">{speed.toFixed(1)} tok/s</span>}
-          <button type="button" className="icon-button" title="Settings" aria-label="Settings" onClick={() => setDialog('settings')}><Settings size={17} /></button>
+          <button type="button" className="icon-button plain" title="Export this chat as Markdown (Ctrl+Shift+E)" aria-label="Export chat" onClick={exportChat}><FileDown size={17} /></button>
+          <button type="button" className="icon-button" title="Settings (Ctrl+,)" aria-label="Settings" onClick={() => setDialog('settings')}><Settings size={17} /></button>
         </div>
       </header>
       <div className="messages" ref={messageScroller} tabIndex={0} role="region" aria-label="Conversation" onScroll={() => {
         const pane = messageScroller.current;
-        if (pane) followReply.current = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 100;
+        if (pane) { followReply.current = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 100; setAtBottom(followReply.current); }
       }}>
         {active.messages.length === 0 ? <div className="empty">
           <div className="empty-icon"><Logo size={88} /></div>
@@ -903,6 +1062,9 @@ export default function DesktopApp() {
           <p className="empty-khmer" lang="km">សួស្តី! តើខ្ញុំអាចជួយអ្វីបាន?</p>
           <p>Ask anything, attach an image, or type <code>/image</code> to create one.</p>
           <div className="suggestions">
+            <button type="button" lang="km" onClick={() => { setInput('សូមសរសេរលិខិតមួយ ដើម្បី '); focusComposer(); }}><PencilLine size={17} /><span>សរសេរលិខិត</span><small>Write a letter</small></button>
+            <button type="button" lang="km" onClick={() => { setInput('សូមសង្ខេបអត្ថបទនេះ៖\n\n'); focusComposer(); }}><FileText size={17} /><span>សង្ខេបអត្ថបទ</span><small>Summarise a text</small></button>
+            <button type="button" lang="km" onClick={() => { setInput('សូមបកប្រែជាភាសាអង់គ្លេស៖ '); focusComposer(); }}><Globe size={17} /><span>បកប្រែ</span><small>Translate</small></button>
             <button type="button" onClick={() => { setInput('Explain this idea simply: '); focusComposer(); }}><Lightbulb size={17} /><span>Explain an idea</span></button>
             <button type="button" onClick={() => { setInput('Help me write code for '); focusComposer(); }}><Code size={17} /><span>Write code</span></button>
             <button type="button" onClick={() => { setInput('/image '); focusComposer(); }}><ImageIcon size={17} /><span>Create an image</span></button>
@@ -928,16 +1090,24 @@ export default function DesktopApp() {
                 ? <a className="source" key={position} href={source.url} target="_blank" rel="noreferrer noopener" title={source.url}><b>{hostOf(source.url)}</b><span>{source.title}</span></a>
                 : <span className="source source-note" key={position} title={source.file}><b><FileText size={11} />{source.file!.split('/').pop()}</b><span dir="auto">{source.title}</span></span>)}</div>}
               {message.role === 'assistant' && !message.pending && <div className="message-actions">
+                {!busy && !message.image && message.id === active.messages[active.messages.length - 1].id && <button type="button" className="copy-message" title="Ask again for a different answer" onClick={() => regenerate(message)}><RefreshCw size={13} />Regenerate</button>}
                 {message.cut && !busy && message.id === active.messages[active.messages.length - 1].id && <button type="button" className="copy-message" onClick={() => void send(KHMER.test(message.text) ? 'សូមបន្តពីកន្លែងដែលអ្នកបានឈប់។' : 'Continue exactly where you left off, without repeating anything.')}><ChevronsDown size={13} />Continue</button>}
                 {message.code && message.code.changed.length > 0 && (message.code.undone
                   ? <span className="code-undone"><Undo2 size={13} />Changes undone</span>
                   : <button type="button" className="copy-message" title={`Restore ${message.code.changed.join(', ')} to how they were before this reply. Changes made by commands are not undone.`} disabled={busy} onClick={() => void undoTask(active.id, message)}><Undo2 size={13} />Undo {message.code.changed.length} file change{message.code.changed.length === 1 ? '' : 's'}</button>)}
+                {message.text && !message.note && !message.plain && !message.image && !message.parts && (message.feedback
+                  ? <span className="code-undone">{message.feedback === 'good' ? <ThumbsUp size={13} /> : <PencilLine size={13} />}{message.feedback === 'good' ? 'Saved as good' : 'Correction saved'}</span>
+                  : <>
+                    <button type="button" className="copy-message" title="Good answer: save it as a training example" onClick={() => void sendFeedback(message, 'good', message.text)}><ThumbsUp size={13} />Good</button>
+                    <button type="button" className="copy-message" title="Correct this answer and save the fixed version for training" onClick={() => { setImproving({ id: message.id, text: message.text }); setDialog('improve'); }}><PencilLine size={13} />Improve</button>
+                  </>)}
                 {message.text && message.note !== 'error' && <button type="button" className="copy-message" onClick={() => void copyMessage(message)}>{copiedId === message.id ? <Check size={13} /> : <Copy size={13} />}{copiedId === message.id ? 'Copied' : 'Copy'}</button>}
                 {(failed || (message.note === 'stopped' && (!message.text || message.text === NOTE_TEXT.stopped))) && <button type="button" className="copy-message" onClick={() => retry(message)}><RotateCcw size={13} />Edit and retry</button>}
               </div>}
             </article>;
           })}
           <div ref={bottom} />
+          {!atBottom && <button type="button" className="jump-latest" onClick={() => { followReply.current = true; setAtBottom(true); bottom.current?.scrollIntoView({ block: 'end', behavior: 'smooth' }); }}><ArrowDown size={14} />Latest</button>}
         </div>}
       </div>
       <div className="composer-wrap" ref={composerWrap}>
@@ -1012,12 +1182,27 @@ export default function DesktopApp() {
             {TOKEN_LIMITS.map(value => <option key={value} value={value}>{value} tokens</option>)}
           </select>
         </div>
+        <div className="form-row">
+          <label htmlFor="setting-model">Model</label>
+          <select id="setting-model" value={models?.current || 'sulvana-2.0'} disabled={!models || busy} onChange={event => void switchModel(event.target.value)}>
+            {(models?.models || [{ id: 'sulvana-2.0', label: 'Sulvana 2.0', detail: '', available: true }]).map(choice =>
+              <option key={choice.id} value={choice.id} disabled={!choice.available}>{choice.label}{choice.available ? '' : ' (not downloaded)'}</option>)}
+          </select>
+        </div>
+        {models && <p className="form-note model-note">{models.models.find(m => m.id === (models.current || 'sulvana-2.0'))?.detail}</p>}
         <div className="form-row stacked">
           <label htmlFor="setting-project">Coding project folder</label>
           <div className="project-field">
             <input id="setting-project" type="text" spellCheck={false} placeholder="/home/you/projects/my-app" value={preferences.codeRoot}
               onChange={event => setPreferences(current => ({ ...current, codeRoot: event.target.value.slice(0, 1000) }))} />
             {window.sulvanaElectron && <button type="button" onClick={() => void chooseProject()}>Choose…</button>}
+          </div>
+        </div>
+        <div className="form-row">
+          <span id="setting-text-size">Text size</span>
+          <div className="segmented" role="radiogroup" aria-labelledby="setting-text-size">
+            {(['small', 'default', 'large'] as const).map(size => <button type="button" key={size} role="radio" aria-checked={preferences.textSize === size}
+              onClick={() => setPreferences(current => ({ ...current, textSize: size }))}>{size === 'small' ? 'Small' : size === 'default' ? 'Default' : 'Large'}</button>)}
           </div>
         </div>
         <div className="form-row">
@@ -1048,6 +1233,18 @@ export default function DesktopApp() {
       <p className="form-note">With <b>Code</b> on, Sulvana works in the project folder you chose: it reads and searches files on its own, but shows every edit as a diff and every command before it runs. Commands run in a sandbox with no network that can only change the project folder. Each reply's file edits can be undone.</p>
       <p className="form-note">Try <code>/docs your topic</code>, <code>/search your question</code>, or <code>/terminal nvidia-smi</code>. Some extra read only inspections ask for one-time permission and show the exact command. File changes, installs, and arbitrary commands are blocked.</p>
       <div className="modal-actions"><button type="button" className="approve-button" onClick={() => setDialog(null)}>Done</button></div>
+    </Modal>}
+    {dialog === 'improve' && improving && <Modal title="Improve this answer" onClose={() => { setDialog(null); setImproving(null); }} className="improve-backdrop">
+      <p>Fix spelling, facts or wording, then save. The corrected answer is stored as a training example for the next fine-tune.</p>
+      <textarea className="improve-text" data-autofocus dir="auto" value={improving.text} onChange={event => setImproving({ ...improving, text: event.target.value })} />
+      <div className="modal-actions">
+        <button type="button" onClick={() => { setDialog(null); setImproving(null); }}>Cancel</button>
+        <button type="button" className="approve-button" disabled={!improving.text.trim()} onClick={() => {
+          const message = active.messages.find(item => item.id === improving.id);
+          if (message) void sendFeedback(message, 'corrected', improving.text.trim());
+          setDialog(null); setImproving(null);
+        }}>Save correction</button>
+      </div>
     </Modal>}
     {dialog === 'delete' && <Modal title="Delete conversation?" alert onClose={() => { setDialog(null); setDeleteId(null); }}>
       <p>This removes “{conversations.find(chat => chat.id === deleteId)?.title || 'this conversation'}” and its chat history. Generated image files remain on disk.</p>

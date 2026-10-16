@@ -80,7 +80,7 @@ class ChatService:
                     self.active = None
             if stream is not None and kind in {
                 "token", "generation_done", "generation_error", "image_started", "image_done", "image_error",
-                "vision_started", "vision_done", "vision_error", "approval_requested", "reasoning", "sources", "code_step"
+                "vision_started", "vision_done", "vision_error", "approval_requested", "reasoning", "sources", "code_step", "retry"
             }:
                 stream.put((kind, payload))
 
@@ -299,11 +299,13 @@ def main() -> None:
                         line = "s\t" + encoded(json.dumps(payload)) + "\n"
                     elif kind == "code_step":
                         line = "c\t" + encoded(json.dumps(payload)) + "\n"
+                    elif kind == "retry":
+                        line = "x\t\n"
                     else:
                         line = "e\t" + encoded(str(payload)) + "\n"
                     self.wfile.write(line.encode("ascii"))
                     self.wfile.flush()
-                    if kind not in {"token", "image_started", "vision_started", "approval_requested", "reasoning", "sources", "code_step"}:
+                    if kind not in {"token", "image_started", "vision_started", "approval_requested", "reasoning", "sources", "code_step", "retry"}:
                         break
             except (BrokenPipeError, ConnectionResetError, TimeoutError, queue.Empty):
                 service.worker.stop()

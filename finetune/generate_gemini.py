@@ -46,7 +46,14 @@ TASKS = {
     "programming": "a beginner programming question (Python or JavaScript) answered in Khmer with a short code example",
     "explanation": "an explanation of a concept (economics, technology, history, language, ethics) for a student",
     "conversation": "a casual question or request a Cambodian user might send to a chat assistant",
+    "cambodia_geography": "a question about Cambodia's provinces, their provincial capitals (e.g. Mondulkiri → Sen Monorom, Kampong Speu → Chbar Mon), borders, rivers, lakes or mountains, answered only with facts you are certain of",
+    "khmer_proverb_vocab": "the meaning of a real Khmer proverb (សុភាសិត), idiom or less common Khmer word, with a correct example sentence",
+    "cambodian_food_culture": "Khmer food (how a dish like amok, kuy teav or num banh chok is made), traditions, ceremonies, arts or daily customs, answered accurately",
 }
+# Sulvana's evaluation (2026-10-15) found these areas weakest; they are drawn more often.
+TASK_WEIGHTS = {"cambodia_fact": 4, "cambodia_geography": 4, "khmer_proverb_vocab": 3, "cambodian_food_culture": 3,
+                "science_explanation": 3, "explanation": 2, "translation_en_km": 2, "translation_km_en": 1, "everyday_advice": 2,
+                "writing_task": 1, "summarization": 1, "conversation": 1, "math_word_problem": 1, "logic_puzzle": 1, "programming": 1}
 
 PROMPT = """You write training data for a Khmer-first AI assistant. Write {n} NEW, varied examples.
 Each example is one user request in Khmer and the ideal assistant reply in Khmer.
@@ -135,7 +142,7 @@ def main() -> int:
     rng = random.Random()
     failures = 0
     while count < args.target:
-        task = rng.choice(list(TASKS))
+        task = rng.choices(list(TASK_WEIGHTS), weights=list(TASK_WEIGHTS.values()))[0]
         themes = ", ".join(rng.sample(THEMES, 3))
         body = {"contents": [{"role": "user", "parts": [{"text": PROMPT.format(n=args.batch, task_text=TASKS[task], themes=themes)}]}],
                 "generationConfig": {"temperature": 1.0, "responseMimeType": "application/json", "responseSchema": SCHEMA}}
