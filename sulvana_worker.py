@@ -565,9 +565,13 @@ class ModelWorker:
             return None
         pairs = [(k, e) if target == "English" else (e, k) for k, e in terms]
         reference = "".join(f"{source} translates to {result.split(' (')[0]}\n" for source, result in pairs)
-        prompt = ((f"Reference the following translations:\n{reference}\n" if reference else "")
-                  + f"Translate the following text into {target}. Note that you must ONLY output the translated result "
-                  "without any additional explanation. Keep line breaks, list markers, numbers, code and links as they are:\n\n" + text)
+        style = ("Please translate the following text into Khmer. Note that the translation style must strictly conform to "
+                 "[natural, fluent everyday Khmer as written by an educated Cambodian for a student; not word-for-word]. "
+                 "Keep the markdown exactly: line breaks, list markers and their numbers, '**' bold, code and links. "
+                 "Only output the translation:\n\n" if target == "Khmer" else
+                 f"Translate the following text into {target}. Note that you must ONLY output the translated result "
+                 "without any additional explanation. Keep line breaks, list markers, numbers, code and links as they are:\n\n")
+        prompt = (f"Reference the following translations:\n{reference}\n" if reference else "") + style + text
         body = {"messages": [{"role": "user", "content": prompt}], "temperature": 0.7, "top_p": 0.6, "top_k": 20,
                 "repeat_penalty": 1.05, "max_tokens": 200 + 3 * len(text)}
         try:
@@ -590,14 +594,24 @@ class ModelWorker:
         paragraph that cannot be translated stays in English rather than being shown wrong."""
         out = []
         for part in re.split(r"(```[\s\S]*?```)", english):
-            for piece in ([part] if part.startswith("```") else re.split(r"(\n\s*\n)", part)):
-                if piece.startswith("```") or not re.search(r"[A-Za-z]{2}", piece):
-                    out.append(piece)
-                    continue
-                lead, trail = piece[:len(piece) - len(piece.lstrip())], piece[len(piece.rstrip()):]
-                source = piece.strip()
-                terms = glossary_for_english(source)
-                out.append(lead + (self._mt(source, "Khmer", terms) or self._mt(source, "Khmer", terms) or source) + trail)
+            if part.startswith("```") or not re.search(r"[A-Za-z]{2}", part):
+                out.append(part)
+                continue
+            lead, trail = part[:len(part) - len(part.lstrip())], part[len(part.rstrip()):]
+            source = part.strip()
+            # The whole section at once keeps wording and list numbering consistent; paragraph by paragraph only
+            # if that fails.
+            whole = self._mt(source, "Khmer", glossary_for_english(source))
+            if whole is None:
+                pieces = []
+                for piece in re.split(r"(\n\s*\n)", source):
+                    if not re.search(r"[A-Za-z]{2}", piece):
+                        pieces.append(piece)
+                        continue
+                    terms = glossary_for_english(piece)
+                    pieces.append(self._mt(piece, "Khmer", terms) or self._mt(piece, "Khmer", terms) or piece)
+                whole = "".join(pieces)
+            out.append(lead + whole + trail)
         return "".join(out)
 
     def _stop_server(self) -> None:
@@ -826,6 +840,10 @@ class ModelWorker:
                 for match in re.finditer(r"\n\s*\n", english):
                     if english[:match.start()].count("```") % 2 == 0:
                         cut = match.end()
+                # With the translation model, send whole sections (about 500 characters, never cutting a list in
+                # two) so the Khmer reads consistently; the first part still appears within seconds.
+                if use_mt and cut > 0 and (cut < 500 or re.match(r"\s*(?:[-*+•]|\d+[.)])\s", english[cut:] or "-")):
+                    cut = -1
             if cut <= 0 or self.translation_failed:
                 return
             chunk, english = english[:cut], english[cut:]

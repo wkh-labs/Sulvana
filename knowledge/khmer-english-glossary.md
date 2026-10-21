@@ -126,6 +126,15 @@ Sulvana's Khmer tools use this list so that school and technical words are under
 - ថ្នាំយ៉ាម៉ា = methamphetamine pills (yaba)
 - ការញៀន = addiction
 
+- ការលម្អងផ្កា = pollination
+- លម្អងផ្កា = pollen
+- មេអំបៅ = butterfly
+- ឃ្មុំ = bee
+- ស្រមោច = ant
+- ជាតិដែក = iron (nutrient)
+- កាល់ស្យូម = calcium
+- កាកសំណល់ = waste
+
 ## Chemistry and physics · គីមីវិទ្យា និងរូបវិទ្យា
 
 - អាតូម = atom

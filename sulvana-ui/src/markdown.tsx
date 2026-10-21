@@ -17,7 +17,9 @@ type Block =
 const FENCE = /^\s*(```+|~~~+)\s*([\w.+#-]*)\s*$/;
 const HEADING = /^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/;
 const RULE = /^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/;
-const ITEM = /^(\s*)([-*+]|\d{1,9}[.)])\s+(.*)$/;
+// List markers: -, *, +, • and numbers in Arabic or Khmer digits ("1." or "១.").
+const ITEM = /^(\s*)([-*+•]|[0-9\u17E0-\u17E9]{1,9}[.)])\s+(.*)$/;
+const KHMER_DIGITS = '០១២៣៤៥៦៧៨៩';
 const QUOTE = /^\s{0,3}>\s?(.*)$/;
 
 function parse(source: string): Block[] {
@@ -55,7 +57,11 @@ function parse(source: string): Block[] {
       while (index < lines.length && lines[index].trim() && !FENCE.test(lines[index])) {
         const item = ITEM.exec(lines[index]);
         if (item) {
-          const marker = /\d/.test(item[2]) ? item[2].replace(')', '.') : '•';
+          // Numbered items in a Khmer list all use Khmer digits, so "1." and "៤." never mix in one list.
+          const number = item[2].replace(/[\u17E0-\u17E9]/g, digit => String(KHMER_DIGITS.indexOf(digit)));
+          const marker = /\d/.test(number)
+            ? (/[\u1780-\u17DD]/.test(item[3]) ? number.replace(/\d/g, digit => KHMER_DIGITS[Number(digit)]) : number).replace(')', '.')
+            : '•';
           items.push({ depth: Math.min(4, Math.floor(item[1].replace(/\t/g, '  ').length / 2)), marker, text: item[3] });
         } else if (/^\s+\S/.test(lines[index])) {
           items[items.length - 1].text += '\n' + lines[index].trim();
