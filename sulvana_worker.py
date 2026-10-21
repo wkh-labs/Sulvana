@@ -20,7 +20,7 @@ import uuid
 from pathlib import Path
 
 import sulvana_code
-from sulvana_tools import (TOOL_INSTRUCTIONS, google_translate, local_translator_available, note_passages, warm_local_translator,
+from sulvana_tools import (TOOL_INSTRUCTIONS, glossary_for_english, glossary_terms, google_translate, khmer_names, local_translate, note_passages,
                            parse_tool_call, run_tool, translate, translate_markdown)
 
 
@@ -124,12 +124,23 @@ SYSTEM_TRANSLATED = (
     "'I hope this helps' or 'Let me know if you have more questions'.\n"
     "- Use simple lists with - or 1. 2. 3. Do not use tables, headings or bold text.\n"
     "- Keep Khmer words, names and quotes in Khmer script exactly as the user wrote them.\n"
+    "- When Khmer terms of the question are listed, write the Khmer term in brackets after the English word the first "
+    "time you use it, for example: tissue (ជាលិកា).\n"
     "- Write every Cambodian name (people, provinces, cities, temples, festivals, dishes) in Khmer script only, never "
     "in Latin letters: write អង្គរវត្ត, not Angkor Wat; ខេត្តសៀមរាប, not Siem Reap; ព្រះបាទសូរ្យវរ្ម័នទី២, not Suryavarman II.\n"
     "- A translation of the user's message may be wrong. When it disagrees with the Khmer original, trust the Khmer, "
     "and never mention the translation to the user.\n"
     "- For maths, show short working and end with the answer on its own line.\n\n"
     + _PERSONA
+)
+KHMER_WRITER = (
+    "You are a translation engine. Translate the English text between ⟪ and ⟫ into natural, correct Khmer, completely "
+    "and faithfully, and output only the Khmer. Never answer, add or leave out anything. Never use Chinese, Thai or "
+    "Lao characters. Keep the same layout: line "
+    "breaks, '- ' bullets and '1.' numbering, and keep code, links, numbers and units exactly. Use Khmer digits in prose. "
+    "Months: January ខែមករា, February ខែកុម្ភៈ, March ខែមីនា, April ខែមេសា, May ខែឧសភា, June ខែមិថុនា, July ខែកក្កដា, "
+    "August ខែសីហា, September ខែកញ្ញា, October ខែតុលា, November ខែវិច្ឆិកា, December ខែធ្នូ. Days: Monday ថ្ងៃច័ន្ទ, "
+    "Tuesday ថ្ងៃអង្គារ, Wednesday ថ្ងៃពុធ, Thursday ថ្ងៃព្រហស្បតិ៍, Friday ថ្ងៃសុក្រ, Saturday ថ្ងៃសៅរ៍, Sunday ថ្ងៃអាទិត្យ."
 )
 SENTENCE_TRANSLATOR = (
     "You are a translation engine. You receive one English sentence between ⟪ and ⟫ and output its natural, correct "
@@ -471,7 +482,6 @@ class ModelWorker:
             try:
                 with urllib.request.urlopen(f"{self.endpoint}/health", timeout=1) as response:
                     if response.status == 200:
-                        warm_local_translator()
                         self._emit("ready", {"model": model, "gpu": "RTX 5070 Laptop GPU"})
                         return
             except urllib.error.URLError:
@@ -533,7 +543,10 @@ class ModelWorker:
         """Translate the user's Khmer message into English with the model itself (it reads Khmer far better than
         it writes it, and better than NLLB does). None if the result does not look like a translation."""
         lora = [{"id": index, "scale": 0.0} for index in range(len(getattr(self, "adapters", []) or []))]
-        body = {"messages": [{"role": "system", "content": QUESTION_TRANSLATOR},
+        terms = glossary_terms(text)
+        system = QUESTION_TRANSLATOR + ("\n\nUse these meanings for the school and technical terms in this text: "
+                                        + "; ".join(f"{khmer} = {english}" for khmer, english in terms) if terms else "")
+        body = {"messages": [{"role": "system", "content": system},
                              {"role": "user", "content": "⟪សូមជួយរៀបចំបញ្ជីទិញឥវ៉ាន់សម្រាប់ពិធីខួបកំណើត។⟫"},
                              {"role": "assistant", "content": "Please help me prepare a shopping list for a birthday party."},
                              {"role": "user", "content": f"⟪{text[:4000]}⟫"}],
@@ -552,6 +565,63 @@ class ModelWorker:
         if not english or len(english) > 3 * len(text) + 80 or len(KHMER.findall(english)) > len(english) / 3:
             return None
         return english
+
+    def _khmer_paragraph(self, english: str, temperature: float = 0.0, adapters: bool = True) -> str | None:
+        """Rewrite one English paragraph in Khmer with the model, given the glossary terms it contains."""
+        terms = glossary_for_english(english)
+        system = KHMER_WRITER + ("\nUse these Khmer terms: " + "; ".join(f"{e} = {k}" for k, e in terms) + "." if terms else "")
+        count = len(getattr(self, "adapters", []) or [])
+        scales = (LORA_KHMER if adapters else [0.0] * count) if len(LORA_KHMER) == count else []
+        body = {"messages": [{"role": "system", "content": system}, {"role": "user", "content": f"⟪{english}⟫"}],
+                "temperature": temperature, "max_tokens": 80 + 2 * len(english), "stream": False,
+                **({"lora": [{"id": i, "scale": s} for i, s in enumerate(scales)]} if scales else {})}
+        if BASE["native_thinking"]:
+            body["chat_template_kwargs"] = {"enable_thinking": False}
+        try:
+            request = urllib.request.Request(f"{self.endpoint}/v1/chat/completions", data=json.dumps(body).encode(),
+                                             headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(request, timeout=300) as response:
+                khmer = json.load(response)["choices"][0]["message"]["content"].strip().strip("⟪⟫").strip()
+        except (OSError, ValueError, KeyError, IndexError):
+            return None
+        letters = len(re.findall(r"[A-Za-z]", re.sub(r"`[^`]*`", "", english)))
+        # Rejected: loops, much longer than the source, no Khmer at all, or other scripts (the base model is
+        # Chinese-trained and sometimes switches to Chinese: "អ្នក还有 24,500 瑞尔").
+        if (not khmer or has_runaway_repetition(khmer) or len(khmer) > 3 * len(english) + 80
+                or (letters > 20 and not KHMER.search(khmer))
+                or re.search(r"[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af\u0e00-\u0eff]", khmer)):
+            return None
+        return khmer
+
+    def _write_khmer(self, english: str) -> str | None:
+        """Turn the model's English answer into Khmer paragraph by paragraph, streaming each one to the app.
+        Code blocks are kept as they are; a paragraph that cannot be rewritten stays in English."""
+        out: list[str] = []
+        for part in re.split(r"(```[\s\S]*?```)", english):
+            if part.startswith("```"):
+                pieces = [part]
+            else:
+                pieces = re.split(r"(\n\s*\n)", part)
+            for piece in pieces:
+                if self.stop_event.is_set():
+                    return "".join(out)
+                if piece.startswith("```") or not re.search(r"[A-Za-z]{2}", piece):
+                    text = piece
+                else:
+                    lead, trail = piece[:len(piece) - len(piece.lstrip())], piece[len(piece.rstrip()):]
+                    source = piece.strip()
+                    # Try the Khmer-tuned model, then the plain model, then a little randomness; as a last resort
+                    # the CPU translator, so a Khmer reader never gets a paragraph in English.
+                    khmer = (self._khmer_paragraph(source) or self._khmer_paragraph(source, 0.0, adapters=False)
+                             or self._khmer_paragraph(source, 0.4) or local_translate(source, "km"))
+                    if khmer:
+                        # "ជាលិកា (ជាលិកា)": the English draft gave the Khmer term in brackets, which is now doubled.
+                        khmer = re.sub(r"([\u1780-\u17FF][\u1780-\u17FF\s]{0,40}?)\s*\(\s*\1\s*\)", r"\1", khmer_names(khmer))
+                    text = lead + (khmer or source) + trail
+                if text:
+                    out.append(text)
+                    self._emit("token", text)
+        return "".join(out)
 
     def _translate_sentence(self, sentence: str) -> str | None:
         """Translate one English sentence into Khmer with the model, for the few that NLLB makes up."""
@@ -605,6 +675,9 @@ class ModelWorker:
         self.translation_used: set[str] = set()
         english = ""      # with translate_to: model text not yet translated and shown
         shown: list[str] = []
+        # Khmer tools on this computer: the English answer is shown as a draft while it is written, then the model
+        # rewrites it in Khmer (_write_khmer). Google translates a paragraph at a time while the answer streams.
+        draft = bool(translate_to) and settings.get("translate_engine") == "local"
 
         def flush(final: bool = False) -> None:
             nonlocal english
@@ -632,7 +705,10 @@ class ModelWorker:
             nonlocal english
             if piece:
                 pieces.append(piece)
-                if translate_to:
+                if draft:
+                    english += piece
+                    self._emit("reasoning", piece)
+                elif translate_to:
                     english += piece
                     flush()
                 else:
@@ -714,9 +790,16 @@ class ModelWorker:
         tool_call = parse_tool_call(candidate) if looking_for_tool and not self.stop_event.is_set() else None
         if candidate and tool_call is None and not (self.stop_event.is_set() and candidate.lstrip().startswith("[[tool:")):
             publish(candidate)
+        if draft and not self.stop_event.is_set() and english.strip():
+            khmer = self._write_khmer(english)
+            if khmer is None:
+                self.translation_failed = True
+            else:
+                shown.append(khmer)
+                self.translation_used.add("local")
+        elif translate_to and not self.stop_event.is_set():
+            flush(final=True)
         if translate_to:
-            if not self.stop_event.is_set():
-                flush(final=True)
             raw = "".join(pieces)
             # Which language the model itself answered in (Khmer means the translator had nothing to do).
             self.model_language = "km" if len(KHMER.findall(raw)) > len(re.findall(r"[A-Za-z]", raw)) else "en"
@@ -928,10 +1011,9 @@ class ModelWorker:
     def _generate(self, text: str, settings: dict) -> None:
         language, in_khmer = reply_target(text, reply_language(settings.get("language")))
         # With the online translator on, a Khmer conversation runs in English behind the scenes (see SYSTEM_TRANSLATED).
-        # Better Khmer: "google" (online, asked first) or "local" (NLLB on this computer); see sulvana_tools.
+        # Khmer tools: "google" (online, asked first) or "local" (the model itself translates the question and
+        # rewrites its English answer in Khmer); see _translate_question and _write_khmer.
         engine = settings.get("translate") if settings.get("translate") in {"google", "local"} else ""
-        if engine == "local" and not local_translator_available():
-            engine = ""
         translated = (in_khmer and bool(engine) and os.environ.get("SULVANA_TRANSLATE") != "0"
                       and not text.startswith("/") and settings.get("code_root") is None
                       and not (ABOUT_KHMER.search(text) and not TRANSLATION_REQUEST.search(text)))
@@ -941,10 +1023,14 @@ class ModelWorker:
             if rough is None:
                 # Locally the model translates the question itself: NLLB is weak from Khmer into English ("amok"
                 # became "amoeba"), and given the Khmer the model answers in Khmer whatever it is told.
-                engine = "local" if local_translator_available() else ""
-                rough = self._translate_question(text) if engine else None
+                engine = "local"
+                rough = self._translate_question(text)
             translated = rough is not None
             english_text = rough or text
+            terms = glossary_terms(text) if translated else []
+            if terms:
+                # Keep the user's Khmer term next to the English one so the answer uses the right Khmer word.
+                english_text += "\n\n(Khmer terms in the question: " + "; ".join(f"{e} = {k}" for k, e in terms) + ")"
         settings = {**settings, "translate_engine": engine}
         # Translated replies are written in English by the plain model: the Khmer adapters pull it into Khmer.
         routed = [0.0] * len(lora_adapters()) if translated else LORA_OTHER if not in_khmer else LORA_KHMER
@@ -1069,9 +1155,10 @@ class ModelWorker:
             target = "km" if translated else ""
             reply, timings, looped, tool_call = self._stream_completion(self._context_messages(working, settings), settings, target)
             if translated and self.translation_failed and not self.stop_event.is_set():
-                # The translator stopped answering mid-reply: start again and let Sulvana write the Khmer itself.
+                # Google stopped answering mid-reply: start again with the Khmer tools on this computer
+                # (or, if those failed, let Sulvana write the Khmer directly).
                 self._emit("retry")
-                self._generate(text, {**settings, "translate": False})
+                self._generate(text, {**settings, "translate": "local" if settings.get("translate_engine") == "google" else False})
                 return
             if looped and not retried:
                 # A reply stuck repeating itself is thrown away and written once more, a little less predictably.

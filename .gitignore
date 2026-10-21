@@ -38,3 +38,6 @@ benchmark/answer_key.private.jsonl
 # Personal notes for Sulvana (may be private)
 knowledge/notes/*
 !knowledge/notes/README.md
+
+# Private benchmark builders and keys (contain answers)
+benchmark/**/*.private.*

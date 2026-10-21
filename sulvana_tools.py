@@ -375,6 +375,68 @@ def google_translate(text: str, target: str, source: str = "auto") -> str | None
     return _remember(key, result)
 
 
+GLOSSARY_FILE = ROOT / "knowledge/khmer-english-glossary.md"
+_glossary: tuple[float, list[tuple[str, str]]] = (0.0, [])
+
+
+def glossary_terms(text: str, limit: int = 12) -> list[tuple[str, str]]:
+    """School and technical terms from knowledge/khmer-english-glossary.md found in a Khmer message, longest first,
+    so that a word inside a longer term (ឈាម in គ្រុនឈាម) is not reported separately."""
+    global _glossary
+    try:
+        mtime = GLOSSARY_FILE.stat().st_mtime
+    except OSError:
+        return []
+    if mtime != _glossary[0]:
+        pairs = re.findall(r"^-\s*([\u1780-\u17FF][^=\n]*?)\s*=\s*(.+?)\s*$", GLOSSARY_FILE.read_text(encoding="utf-8"), re.M)
+        _glossary = (mtime, sorted(((km, en) for km, en in pairs if len(km) >= 3), key=lambda pair: -len(pair[0])))
+    found, taken = [], [False] * len(text)
+    for khmer, english in _glossary[1]:
+        start = text.find(khmer)
+        if start >= 0 and not any(taken[start:start + len(khmer)]):
+            taken[start:start + len(khmer)] = [True] * len(khmer)
+            found.append((khmer, english))
+            if len(found) >= limit:
+                break
+    return found
+
+
+# English words in the glossary with other everyday meanings: not swapped into Khmer automatically.
+_AMBIGUOUS = {"base (chemistry)", "square", "product", "sum", "difference", "interest (money)", "volume", "function",
+              "limit", "light", "heat", "sound", "wave", "force", "weight", "mass", "speed", "energy", "market", "data",
+              "area", "culture", "government", "community", "citizen", "tax", "war", "peace", "pressure", "magnet",
+              "integer, whole number", "planet earth", "star", "weather, climate", "flood", "steam, water vapour",
+              "melting, dissolving", "germ, pathogen", "average, mean", "angle", "internet"}
+
+
+def glossary_for_english(english: str, limit: int = 20) -> list[tuple[str, str]]:
+    """Glossary entries whose English term appears in an English text, as (khmer, english) pairs."""
+    glossary_terms("")                                   # load the glossary
+    found = []
+    for khmer, meaning in _glossary[1]:
+        for word in (w.strip() for w in meaning.split(",")):
+            word = re.sub(r"\s*\(.*\)", "", word)
+            if len(word) >= 4 and re.search(rf"\b{re.escape(word)}(?:s|es)?\b", english, re.I):
+                found.append((khmer, word))
+                break
+        if len(found) >= limit:
+            break
+    return found
+
+
+def apply_glossary(english: str) -> str:
+    """Before the local translator writes Khmer, put the glossary's Khmer term in place of the English one,
+    because NLLB gets school terms wrong ("tissue" became "muscle")."""
+    glossary_terms("")                                   # load the glossary
+    for khmer, meaning in _glossary[1]:
+        if meaning.casefold() in _AMBIGUOUS:
+            continue
+        for word in sorted((w.strip() for w in meaning.split(",")), key=len, reverse=True):
+            if len(word) >= 4:
+                english = re.sub(rf"\b{re.escape(word)}(?:s|es)?\b(?:\s*\({re.escape(khmer)}\))?", khmer, english, flags=re.I)
+    return re.sub(r"([\u1780-\u17FF]+)\s*\(\1\)", r"\1", english)
+
+
 def local_translator_available() -> bool:
     return (NLLB_DIR / "model.bin").is_file()
 
@@ -450,6 +512,8 @@ def local_translate(text: str, target: str, rescue: Callable[[str], str | None] 
     if source == target:
         return text
     tokenizer = nllb["tokenizers"][source]
+    if source == "en" and target == "km":
+        clean = apply_glossary(clean)
     # Each line: keep its list marker and inline code; translate the sentences in between.
     plan: list[list[tuple[bool, str]]] = []
     pieces: list[str] = []
@@ -494,9 +558,9 @@ def translate(text: str, target: str, engine: str = "google",
               rescue: Callable[[str], str | None] | None = None) -> tuple[str | None, str]:
     """Translate with the chosen engine; Google falls back to the local translator. Returns (text, engine used)."""
     if engine == "google":
-        result = google_translate(text, target)
-        if result is not None:
-            return result, "google"
+        # No silent fallback to NLLB: its mistakes change meanings. The worker restarts the reply with the
+        # model's own Khmer tools instead.
+        return google_translate(text, target), "google"
     return local_translate(text, target, rescue), "local"
 
 
