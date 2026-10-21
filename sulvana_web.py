@@ -173,9 +173,18 @@ def main() -> None:
         protocol_version = "HTTP/1.0"
 
         def log_message(self, format, *args) -> None:
+            # One line per request: who (this computer, or a friend on the shared link with the IP address and
+            # country Cloudflare reports), what, and the result. Chat text is never logged.
             try:
                 code = str(args[1]) if len(args) > 1 else ""
-                sys.stderr.write(f"[{time.strftime('%H:%M:%S')}] {self.command} {self.path.split('?')[0]} -> {code}\n")
+                if self._is_local():
+                    who = "local "
+                else:
+                    who = ("friend " + (self.headers.get("CF-Connecting-IP") or self.client_address[0])
+                           + (f" ({self.headers.get('CF-IPCountry')})" if self.headers.get("CF-IPCountry") else ""))
+                extra = getattr(self, "log_extra", "")
+                sys.stderr.write(f"[{time.strftime('%H:%M:%S')}] {who:<26} {self.command} {self.path.split('?')[0]} -> {code}"
+                                 + (f"  {extra}" if extra else "") + "\n")
                 sys.stderr.flush()
             except Exception:
                 pass
@@ -387,6 +396,11 @@ def main() -> None:
                     raise ValueError("Reply language name is too long")
                 history = request.get("history", [])
                 if not isinstance(history, list) or len(history) > 400: raise ValueError("Invalid chat history")
+                self.log_extra = (f"chat: {len(prompt)} chars, {len(history)} earlier messages"
+                                  + (f", khmer tools {request.get('translate')}" if request.get("translate") else "")
+                                  + (", search" if request.get("search") is True else "")
+                                  + (", search when unsure" if request.get("autoSearch") is True else "")
+                                  + (", image attached" if request.get("image") else ""))
                 image_data = request.get("image")
             except (ValueError, json.JSONDecodeError) as error:
                 self._send(400, str(error).encode(), "text/plain"); return

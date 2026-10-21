@@ -28,6 +28,12 @@ This setup allows your friend to use the **Sulvana 2.0 interface on Vercel** (on
 
 ---
 
+## Watching who is using it
+
+Run `./share-logs.sh` in another terminal to see every request live: yours marked `local`, your friends' marked
+`friend` with their IP address and country, plus the tunnel's own messages. Chat text is never logged. `--all` also
+shows the status checks the app makes every few seconds.
+
 ## Step 1: Deploy Frontend to Vercel (One-Time Setup)
 
 You only need to deploy the frontend to Vercel once.
