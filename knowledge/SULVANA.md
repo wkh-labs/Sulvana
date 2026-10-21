@@ -2,7 +2,7 @@
 
 Sulvana 2.0 (ស៊ុលវ៉ាណា) is the assistant in this app, made by WKH Labs. It is a Khmer-first assistant: it answers in Khmer when you write in Khmer or when the language is unclear, and in your language when you clearly write in another one. The Reply language setting overrides this.
 
-Sulvana 2.0 is built on the open model MiMo-V2.6-Distill-Qwen-9B (by Xiaomi, itself a fine-tune of Alibaba's Qwen3.5-9B) and runs on this computer. WKH Labs is not affiliated with Xiaomi or Alibaba. The earlier Sulvana v1 was built on Dolphin 3.0 Llama 3.1 8B (Built with Llama). Conversations stay on this device unless you ask for a web search or choose Google for Better Khmer.
+Sulvana 2.0 is built on the open model MiMo-V2.6-Distill-Qwen-9B (by Xiaomi, itself a fine-tune of Alibaba's Qwen3.5-9B) and runs on this computer. WKH Labs is not affiliated with Xiaomi or Alibaba. The earlier Sulvana v1 was built on Dolphin 3.0 Llama 3.1 8B (Built with Llama). Conversations stay on this device. Short web search queries are sent when you ask for a search or when Sulvana is unsure of a fact (Settings → Search when unsure), and Khmer text is sent to Google only if you choose Google for the Khmer tools.
 
 Sulvana 2.0 ជាជំនួយការ AI ដែលដំណើរការនៅលើកុំព្យូទ័រនេះផ្ទាល់ ហើយប្រើភាសាខ្មែរជាភាសាទីមួយ។
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 import os
 import re
@@ -113,7 +114,8 @@ def note_passages(query: str, budget: int = NOTES_BUDGET, limit: int = 5) -> lis
         return []
     scored: list[tuple[float, str, str, str]] = []
     for path in sorted(NOTES_ROOT.rglob("*.md")):
-        if (path.name == "README.md" or any(part.startswith(".") for part in path.relative_to(NOTES_ROOT).parts)
+        # The glossary is used by the Khmer tools directly; as a "source" it is only noise.
+        if (path.name in {"README.md", "khmer-english-glossary.md"} or any(part.startswith(".") for part in path.relative_to(NOTES_ROOT).parts)
                 or path.stat().st_size > 2_000_000):
             continue
         try:
@@ -288,9 +290,32 @@ def web_search_results(query: str) -> tuple[list[dict[str, str]], str]:
             results.append({"title": title, "url": item["url"], "snippet": " ".join(item["snippet"].split())[:500]})
     if results:
         return results, ""
+    # DuckDuckGo sometimes answers with a bot check; Wikipedia's search API is a dependable fallback.
+    wiki = _wikipedia_results(clean)
+    if wiki:
+        return wiki, ""
     if "anomaly" in page.lower() or "captcha" in page.lower():
         return [], "Web search provider requested a bot challenge. Try again later."
     return [], "No public search results were returned for that query."
+
+
+def _wikipedia_results(query: str, language: str = "en") -> list[dict[str, str]]:
+    url = (f"https://{language}.wikipedia.org/w/api.php?action=query&list=search&format=json&utf8=1&srlimit=5&srsearch="
+           + urllib.parse.quote(query[:200]))
+    try:
+        request = urllib.request.Request(url, headers={"User-Agent": "Sulvana/2.0 (local assistant)"})
+        with urllib.request.urlopen(request, timeout=10) as response:
+            data = json.loads(response.read().decode("utf-8", errors="replace"))
+    except (OSError, ValueError):
+        return []
+    results = []
+    for item in data.get("query", {}).get("search", [])[:5]:
+        title = " ".join(str(item.get("title", "")).split())[:200]
+        snippet = " ".join(html.unescape(re.sub(r"<[^>]+>", "", str(item.get("snippet", "")))).split())[:500]
+        if title:
+            results.append({"title": f"{title} (Wikipedia)", "snippet": snippet,
+                            "url": f"https://{language}.wikipedia.org/wiki/" + urllib.parse.quote(title.replace(" ", "_"))})
+    return results
 
 
 def web_search(query: str, sources: list | None = None) -> str:

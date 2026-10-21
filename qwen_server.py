@@ -270,6 +270,7 @@ def main() -> None:
                             "reasoning": self.headers.get("X-Reasoning") == "1",
                             "translate": self.headers.get("X-Translate") if self.headers.get("X-Translate") in {"google", "local"} else "",
                             "remote": self.headers.get("X-Remote") != "0",
+                            "auto_search": self.headers.get("X-Auto-Search") == "1",
                             # Coding mode: the project folder the agent may work in (checked by the worker).
                             "code_root": code_root,
                         },

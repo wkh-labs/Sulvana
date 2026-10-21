@@ -14,7 +14,9 @@ Use it for questions about Sulvana, the installed models, local image generation
 
 `web.search` looks up a short public query on the web and returns a compact list of titles, links, and snippets (up to eight results). Sulvana does not upload local files or attach chat history. Only the search query leaves the computer; Sulvana does not open or read the result pages.
 
-This tool only runs when the user explicitly asks for it, in one of three ways: turning on the **Search** switch under the message box for that one message (it switches itself off again after sending), asking in words to search or look something up online in English or Khmer (for example "search the web for…" or "ស្វែងរកតាមអ៊ីនធឺណិត…"), or the `/search` command. The words that only instruct Sulvana to search are removed from the query, so the search engine receives the subject rather than the whole sentence.
+With Settings → **Search when unsure** on (the default), Sulvana first asks itself, in one short request, whether it really knows the answer. If the question is about a specific fact, definition, name, place, number or recent event it is not sure of, or contains a word it does not recognise, it searches before answering (status "Checking…", then "Searching the web…"). It does not search for maths, code, writing, small talk, coding mode, or questions the notes already cover. Only the short search query leaves the computer. If DuckDuckGo refuses, Wikipedia's search is used.
+
+Otherwise the tool only runs when the user explicitly asks for it, in one of three ways: turning on the **Search** switch under the message box for that one message (it switches itself off again after sending), asking in words to search or look something up online in English or Khmer (for example "search the web for…" or "ស្វែងរកតាមអ៊ីនធឺណិត…"), or the `/search` command. The words that only instruct Sulvana to search are removed from the query, so the search engine receives the subject rather than the whole sentence.
 
 The results Sulvana used are listed under its answer as **Sources**. Clicking a source opens that page in the user's own web browser; Sulvana itself never opens links.
 
@@ -56,7 +58,7 @@ Sulvana can also ask to run one of these exact read-only command forms inside th
 
 The app shows the exact command and waits up to 60 seconds for **Allow once** or **Deny**. Stop, closing the request, and timeout deny it. An approval is tied to one unpredictable request ID and cannot authorize a different command. Source inspection excludes hidden paths, model files, generated images, datasets, installed dependencies, files outside the project, and files larger than 256 KB.
 
-Commands that write, install, delete, change settings, use credentials, read excluded folders, or run arbitrary shell or code remain blocked. Web search only runs when the user asks for online/current information.
+Commands that write, install, delete, change settings, use credentials, read excluded folders, or run arbitrary shell or code remain blocked. Web search runs when the user asks for online/current information, or when Sulvana is unsure and Search when unsure is on.
 
 ## Notes (automatic)
 

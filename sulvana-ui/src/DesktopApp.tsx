@@ -53,12 +53,12 @@ type CodeTask = { task: string; root: string; changed: string[]; undone?: boolea
 /** A web result (url) or a section of a local Markdown note (file). */
 type Source = { title: string; url?: string; file?: string };
 type Conversation = { id: string; title: string; messages: Message[]; updatedAt?: number };
-type Preferences = { temperature: number; maxTokens: number; language: string; theme: 'dark' | 'light'; reasoning: boolean; code: boolean; codeRoot: string; textSize: TextSize; translate: Translator; translateAsked: boolean; uiLanguage: 'km' | 'en' };
+type Preferences = { temperature: number; maxTokens: number; language: string; theme: 'dark' | 'light'; reasoning: boolean; code: boolean; codeRoot: string; textSize: TextSize; translate: Translator; translateAsked: boolean; uiLanguage: 'km' | 'en'; autoSearch: boolean };
 /** Better Khmer: who writes the Khmer. 'local' = NLLB on this computer, 'google' = Google Translate (online). */
 type Translator = 'off' | 'local' | 'google';
 type EngineStatus = { state: string; detail: string; approval?: ApprovalRequest | null };
 type Dialog = 'settings' | 'tools' | 'delete' | 'improve' | null;
-type StreamPayload = { prompt: string; image?: string; history: { role: string; content: string }[]; maxTokens: number; temperature: number; language: string; search?: boolean; reasoning?: boolean; translate?: Translator; code?: { root: string } };
+type StreamPayload = { prompt: string; image?: string; history: { role: string; content: string }[]; maxTokens: number; temperature: number; language: string; search?: boolean; reasoning?: boolean; translate?: Translator; autoSearch?: boolean; code?: { root: string } };
 type ApprovalRequest = { id: string; command: string; reason: string; timeout_seconds: number; kind?: 'read' | 'edit' | 'write' | 'command'; title?: string; diff?: string; allow_all?: boolean };
 type Attachment = { name: string; data: string };
 type Notice = { kind: 'error' | 'info'; text: string };
@@ -71,7 +71,7 @@ const TOKEN_LIMITS = [512, 1024, 2048, 4096, 8192];
 const LENGTH_NAMES: Record<number, string> = { 512: 'Short', 1024: 'Medium', 2048: 'Long', 4096: 'Very long', 8192: 'Longest' };
 const LENGTH_NAMES_KM: Record<number, string> = { 512: 'ខ្លី', 1024: 'មធ្យម', 2048: 'វែង', 4096: 'វែងណាស់', 8192: 'វែងបំផុត' };
 type TextSize = 'small' | 'default' | 'large';
-const DEFAULT_PREFERENCES: Preferences = { temperature: 0.4, maxTokens: 2048, language: 'Auto', theme: 'dark', reasoning: false, code: false, codeRoot: '', textSize: 'default', translate: 'local', translateAsked: false, uiLanguage: 'km' };
+const DEFAULT_PREFERENCES: Preferences = { temperature: 0.4, maxTokens: 2048, language: 'Auto', theme: 'dark', reasoning: false, code: false, codeRoot: '', textSize: 'default', translate: 'local', translateAsked: false, uiLanguage: 'km', autoSearch: true };
 const KHMER = /[\u1780-\u17FF]/;
 const NOTE_TEXT: Record<Note, string> = {
   error: 'Something went wrong.',
@@ -169,6 +169,7 @@ function cleanPreferences(raw: unknown): Preferences {
       : (saved.translate === 'google' || (saved.translate as unknown) === true) && saved.translateAsked === true ? 'google' : 'local',
     translateAsked: saved.translateAsked === true,
     uiLanguage: saved.uiLanguage === 'en' ? 'en' : 'km',
+    autoSearch: saved.autoSearch !== false,
   };
 }
 
@@ -1046,6 +1047,7 @@ export default function DesktopApp() {
       search: (searchOn && kind === 'chat' && !coding) || undefined,
       reasoning: (preferences.reasoning && kind === 'chat') || undefined,
       translate: kind === 'chat' && !coding && preferences.translate !== 'off' ? preferences.translate : undefined,
+      autoSearch: (preferences.autoSearch && kind === 'chat' && !coding) || undefined,
       code: coding ? { root: preferences.codeRoot } : undefined,
     };
     setConversations(previous => previous.map(chat => chat.id === chatId
@@ -1463,6 +1465,15 @@ export default function DesktopApp() {
       </details>
       <div className="form-group">
         <div className="form-row">
+          <span id="setting-auto-search">{L('Search when unsure', 'ស្វែងរកពេលមិនច្បាស់')}</span>
+          <div className="segmented" role="radiogroup" aria-labelledby="setting-auto-search">
+            {([true, false] as const).map(on => <button type="button" key={String(on)} role="radio" aria-checked={preferences.autoSearch === on}
+              onClick={() => setPreferences(current => ({ ...current, autoSearch: on }))}>{on ? L('On', 'បើក') : L('Off', 'បិទ')}</button>)}
+          </div>
+        </div>
+        <p className="form-note">{L('When Sulvana is not sure of a fact, name or word, it looks it up on the web first and lists the sources. Only a short search query is sent (to DuckDuckGo or Wikipedia), not your conversation.',
+          'ពេល Sulvana មិនច្បាស់អំពីការពិត ឈ្មោះ ឬពាក្យណាមួយ វានឹងស្វែងរកតាមអ៊ីនធឺណិតជាមុន ហើយបង្ហាញប្រភព។ មានតែពាក្យស្វែងរកខ្លីមួយប៉ុណ្ណោះដែលត្រូវបានផ្ញើ (ទៅ DuckDuckGo ឬ Wikipedia) មិនមែនការសន្ទនារបស់អ្នកទេ។')}</p>
+        <div className="form-row">
           <span id="setting-ui-language">{L('Interface language', 'ភាសាកម្មវិធី')}</span>
           <div className="segmented" role="radiogroup" aria-labelledby="setting-ui-language">
             {(['km', 'en'] as const).map(language => <button type="button" key={language} role="radio" aria-checked={preferences.uiLanguage === language}
@@ -1497,7 +1508,7 @@ export default function DesktopApp() {
       <p>Sulvana can search local Markdown guides, search the public web when you ask, and run a small set of read only checks on this computer.</p>
       <div className="form-group">
         <div className="form-row"><span>Local documentation</span><em>Available</em></div>
-        <div className="form-row"><span>Public web search</span><em className="online">Online · when asked</em></div>
+        <div className="form-row"><span>{L('Public web search', 'ស្វែងរកតាមអ៊ីនធឺណិត')}</span><em className="online">{preferences.autoSearch ? L('Online · when asked or unsure', 'អនឡាញ · ពេលសួរ ឬមិនច្បាស់') : L('Online · when asked', 'អនឡាញ · ពេលសួរ')}</em></div>
         <div className="form-row"><span>{L('Khmer tools', 'ឧបករណ៍ភាសាខ្មែរ')}</span><em className={preferences.translate === 'google' ? 'online' : ''}>{preferences.translate === 'google' ? 'Online · Google' : preferences.translate === 'local' ? 'On this computer' : 'Off'}</em></div>
         <div className="form-row"><span>Read only terminal checks</span><em>Limited</em></div>
         <div className="form-row"><span>Coding mode (one project folder)</span><em>Asks first</em></div>

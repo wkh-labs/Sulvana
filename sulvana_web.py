@@ -398,6 +398,7 @@ def main() -> None:
                            "X-Search": "1" if request.get("search") is True else "0",
                            "X-Reasoning": "1" if request.get("reasoning") is True else "0",
                            "X-Translate": request.get("translate") if request.get("translate") in {"google", "local"} else "off",
+                           "X-Auto-Search": "1" if request.get("autoSearch") is True else "0",
                            # A friend on the shared link may chat, but not inspect this computer.
                            "X-Remote": "0" if self._is_local() else "1"}
                 if self._is_local():
