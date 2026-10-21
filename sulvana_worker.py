@@ -181,7 +181,7 @@ GARBLED_REPLY = (
 )
 CHANGING_FACTS = re.compile(
     r"\b20(?:2[3-9]|[3-9]\d)\b|២០(?:២[៣-៩]|[៣-៩][០-៩])|\b(?:latest|current(?:ly)?|recent(?:ly)?|right now|nowadays|this year|"
-    r"last year|today'?s|news|won|winners?|champions?|prices?|costs? now|exchange rate|population|president|prime minister|"
+    r"last year|today'?s|news|won|winners?|champions?|hottest|trending|popular now|top selling|best selling|prices?|costs? now|exchange rate|population|president|prime minister|"
     r"ceo|minister of|released|new version)\b|បច្ចុប្បន្ន|ថ្មីៗ|ចុងក្រោយ|ឆ្នាំនេះ|ឆ្នាំមុន|ឈ្នះ|ម្ចាស់ជើងឯក|តម្លៃ|អត្រាប្ដូរ|"
     r"ចំនួនប្រជាជន|ប្រធានាធិបតី|នាយករដ្ឋមន្ត្រី|រដ្ឋមន្ត្រី|ព័ត៌មាន", re.I)
 QUESTION_TRANSLATOR = (
@@ -651,13 +651,19 @@ class ModelWorker:
             result.pop(1)
         return result
 
-    def _search_check(self, question: str, note_titles: list[str] | None = None) -> str | None:
+    def _search_check(self, question: str, note_titles: list[str] | None = None, recent: str = "") -> str | None:
         """Ask the model, in one short request, whether it is sure enough to answer without searching.
         Returns a web search query when it is not."""
         lora = [{"id": index, "scale": 0.0} for index in range(len(getattr(self, "adapters", []) or []))]
         system = SEARCH_CHECK + ("\nReliable local notes are available on: " + "; ".join(note_titles)
                                  + ". If they clearly cover the question, reply KNOWN." if note_titles else "")
-        body = {"messages": [{"role": "system", "content": system}, {"role": "user", "content": question[:2000]}],
+        if recent:
+            # A follow-up ("indie games" after "the hottest game on Steam right now?") only makes sense with what
+            # came before; the query must then be a complete one.
+            system += ("\nThe latest message may continue the earlier conversation. Decide for the latest message as the "
+                       "user means it in that context, and write a complete, standalone search query.")
+            question = f"Earlier conversation:\n{recent}\n\nLatest message: {question}"
+        body = {"messages": [{"role": "system", "content": system}, {"role": "user", "content": question[:3000]}],
                 "temperature": 0, "max_tokens": 40, "stream": False, **({"lora": lora} if lora else {})}
         if BASE["native_thinking"]:
             body["chat_template_kwargs"] = {"enable_thinking": False}
@@ -1274,9 +1280,16 @@ class ModelWorker:
               and len(plain_question.strip()) > 3):
             # Search when unsure: a quick check asks the model whether it really knows the answer.
             self._emit("status", "Checking…")
-            query = self._search_check(plain_question, [note["title"] for note in notes])
-            if not query and (CHANGING_FACTS.search(plain_question) or CHANGING_FACTS.search(text)):
-                query = search_query(plain_question)
+            earlier = [item for item in (settings.get("history") or []) if isinstance(item, dict)
+                       and item.get("role") in {"user", "assistant"} and isinstance(item.get("content"), str)][-4:]
+            recent = "\n".join(f"{item['role'].capitalize()}: {' '.join(item['content'].split())[:300]}" for item in earlier)
+            query = self._search_check(plain_question, [note["title"] for note in notes], recent)
+            previous_user = next((item["content"] for item in reversed(earlier) if item["role"] == "user"), "")
+            if not query and (CHANGING_FACTS.search(plain_question) or CHANGING_FACTS.search(text)
+                              # a short follow-up to a question about current things is about current things too
+                              or (len(plain_question.split()) <= 6 and CHANGING_FACTS.search(previous_user))):
+                query = search_query(plain_question if not previous_user or len(plain_question.split()) > 6
+                                     else f"{previous_user} {plain_question}")
             if query:
                 allow_web = True
                 pretool = ("web.search", {"query": query})
