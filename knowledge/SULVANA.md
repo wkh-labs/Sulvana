@@ -8,7 +8,7 @@ Sulvana 2.0 ជាជំនួយការ AI ដែលដំណើរការ�
 
 ## Limits
 
-Sulvana's own written Khmer has spelling and grammar mistakes, so by default it thinks in English and a translator writes the Khmer (Settings → Better Khmer: This computer, Google, or Off). The translation can still contain wrong words. Questions about the Khmer language itself (grammar, spelling, meanings, proverbs) are answered in Khmer directly. Check important facts. WKH Labs measures Khmer quality with `benchmark/skb/`, `benchmark/` and `benchmark/chat/`.
+Sulvana's own written Khmer has spelling and grammar mistakes, so by default it thinks in English and Khmer tools write the Khmer (Settings → Khmer tools: This computer, Google, or Off). The Khmer tools can still pick a wrong word. Questions about the Khmer language itself (grammar, spelling, meanings, proverbs) are answered in Khmer directly, without the tools. Check important facts. WKH Labs measures Khmer quality with `benchmark/skb/`, `benchmark/` and `benchmark/chat/`.
 
 A reply can be up to 8,192 tokens long (choose the limit in Settings), and when a reply stops at the limit a Continue button carries it on. The model remembers about 32,000 tokens of the conversation, roughly 18,000 Khmer characters or 100,000 English characters. When a conversation grows past that, the oldest messages are left out. Khmer uses more tokens per word than English, so long Khmer conversations reach that limit sooner.
 

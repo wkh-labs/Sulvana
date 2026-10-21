@@ -21,7 +21,7 @@ the models or of models derived from them.
 
 ## Online services
 
-- **Better Khmer → Google** (only if the user chooses it) sends Khmer messages and replies to Google Translate's public web
+- **Khmer tools → Google** (only if the user chooses it) sends Khmer messages and replies to Google Translate's public web
   endpoint (translate.googleapis.com). This is not an official, documented API for apps; Google may limit or change it.
 - **Web search** (only when asked) sends the search query to DuckDuckGo.
 

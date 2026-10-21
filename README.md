@@ -28,7 +28,7 @@ the limit gets a Continue button. That context does not fit in 8 GB of VRAM next
 so llama.cpp (`--fit`) keeps some layers in system RAM, which makes replies slower; start Sulvana
 with `SULVANA_CONTEXT=16384` for full GPU speed with a shorter memory.
 
-**Better Khmer** (Settings) makes Khmer replies more accurate: Sulvana answers in English and a translator
+**Khmer tools** (Settings) make Khmer replies more accurate: Sulvana answers in English and a translator
 writes the Khmer. By default this is NLLB-200 running on the CPU (`models/nllb-200-1.3B-ct2-int8`, 1.4 GB,
 from `OpenNMT/nllb-200-distilled-1.3B-ct2-int8`; needs `uv pip install --python .venv/bin/python ctranslate2`),
 so nothing leaves the laptop. Users can choose Google Translate instead (more accurate, sends the text to Google,

@@ -1006,7 +1006,7 @@ class ModelWorker:
                 # Khmer becomes English and anything else becomes Khmer. Google only when the user allowed it.
                 reply = ((translate(argument, "en" if KHMER.search(argument) else "km",
                                     "google" if settings.get("translate") == "google" else "local")[0]
-                          or "No translator is available. Turn on Better Khmer in Settings, or check the internet connection.")
+                          or "Khmer tools are not available. Turn them on in Settings → Khmer tools, or check the internet connection.")
                          if argument else "Usage: /translate <text in Khmer or English>")
             elif argument:
                 reply = run_tool(tool_name, {field: argument}, allow_web=action == "search",

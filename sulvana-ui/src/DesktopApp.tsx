@@ -1230,7 +1230,7 @@ export default function DesktopApp() {
           <button type="button" className="icon-button drawer-toggle" aria-label="Show conversations" title="Conversations" onClick={() => setDrawerOpen(true)}><Menu size={17} /></button>
           <strong>{modelName}</strong>{baseModel && <span className="model-chip" title={`${modelName} is built on ${baseModel} and runs on this computer.`}>{baseModel}</span>}
           {adapter && <span className="model-chip adapter-chip" title={`WKH Labs Khmer fine-tune loaded on top of ${baseModel || 'the base model'} (${adapter.split('+').join(', ')})`}>Khmer-tuned</span>}
-          {preferences.translate === 'google' && <span className="model-chip online-chip" title="Better Khmer uses Google Translate: Khmer messages and replies are sent to Google. Choose 'This computer' in Settings to keep everything local."><Globe size={11} /> {L('Google Translate on', 'កំពុងប្រើ Google Translate')}</span>}
+          {preferences.translate === 'google' && <span className="model-chip online-chip" title={L("Khmer tools use Google: your Khmer messages and Sulvana's replies are sent to Google. Choose 'This computer' in Settings to keep everything local.", 'ឧបករណ៍ភាសាខ្មែរកំពុងប្រើ Google៖ សារជាភាសាខ្មែររបស់អ្នក និងចម្លើយរបស់ Sulvana ត្រូវបានផ្ញើទៅ Google។ ជ្រើស «កុំព្យូទ័រនេះ» ក្នុងការកំណត់ ដើម្បីរក្សាទុកអ្វីៗទាំងអស់នៅលើកុំព្យូទ័រនេះ។')}><Globe size={11} /> {L('Google tools on', 'កំពុងប្រើឧបករណ៍ Google')}</span>}
         </div>
         <div className="topbar-right">
           <span className={'status-dot ' + (ready ? 'ready' : engineDown ? 'bad' : 'busy')} aria-hidden="true" title={statusText} />
@@ -1250,14 +1250,14 @@ export default function DesktopApp() {
               <p lang="km">សួរអ្វីក៏បាន ភ្ជាប់រូបភាព ឬវាយ <code>/image</code> ដើម្បីបង្កើតរូបភាព។</p></>
             : <><h1>What are we working on?</h1><p className="empty-khmer" lang="km">សួស្តី! តើខ្ញុំអាចជួយអ្វីបាន?</p>
               <p>Ask anything, attach an image, or type <code>/image</code> to create one.</p></>}
-          {!preferences.translateAsked && <div className="consent-card" role="region" aria-label="Better Khmer">
+          {!preferences.translateAsked && <div className="consent-card" role="region" aria-label="Khmer tools">
             <strong lang="km">ចង់បានភាសាខ្មែរល្អជាងនេះទេ?</strong>
             {uiLanguage === 'km'
-              ? <p lang="km">Sulvana គិតជាភាសាអង់គ្លេស ហើយកម្មវិធីបកប្រែនៅលើកុំព្យូទ័រនេះ សរសេរជាភាសាខ្មែរ។ ដើម្បីបានភាសាខ្មែរត្រឹមត្រូវជាងនេះ អ្នកអាចប្រើ <b>Google Translate</b> ប៉ុន្តែសារជាភាសាខ្មែររបស់អ្នក និងចម្លើយរបស់ Sulvana នឹងត្រូវផ្ញើទៅ Google។ អ្នកអាចប្តូរវានៅពេលណាក៏បាន ក្នុងការកំណត់។</p>
-              : <p>Sulvana thinks in English and a translator on this computer writes the Khmer. For the most accurate Khmer you can use <b>Google Translate</b> instead, but your Khmer messages and Sulvana's replies are then sent to Google. You can change this any time in Settings.</p>}
+              ? <p lang="km">Sulvana គិតជាភាសាអង់គ្លេស ហើយឧបករណ៍ភាសាខ្មែរនៅលើកុំព្យូទ័រនេះ សរសេរចម្លើយជាភាសាខ្មែរ។ ដើម្បីបានភាសាខ្មែរត្រឹមត្រូវជាងនេះ អ្នកអាចប្រើ<b>ឧបករណ៍ Google</b> ប៉ុន្តែសារជាភាសាខ្មែររបស់អ្នក និងចម្លើយរបស់ Sulvana នឹងត្រូវផ្ញើទៅ Google។ អ្នកអាចប្តូរវានៅពេលណាក៏បាន ក្នុងការកំណត់។</p>
+              : <p>Sulvana thinks in English and Khmer tools on this computer write the answer in Khmer. For the most accurate Khmer you can use <b>Google's tools</b> instead, but your Khmer messages and Sulvana's replies are then sent to Google. You can change this any time in Settings.</p>}
             <div className="consent-actions">
               <button type="button" onClick={() => setPreferences(current => ({ ...current, translate: 'local', translateAsked: true }))}>{L('Keep it on this computer', 'រក្សាទុកនៅលើកុំព្យូទ័រនេះ')}</button>
-              <button type="button" className="approve-button" onClick={() => setPreferences(current => ({ ...current, translate: 'google', translateAsked: true }))}>{L('Use Google Translate', 'ប្រើ Google Translate')}</button>
+              <button type="button" className="approve-button" onClick={() => setPreferences(current => ({ ...current, translate: 'google', translateAsked: true }))}>{L("Use Google's tools", 'ប្រើឧបករណ៍ Google')}</button>
             </div>
           </div>}
           <div className="suggestions">
@@ -1273,7 +1273,7 @@ export default function DesktopApp() {
             const failed = message.note === 'error' || message.note === 'empty' || message.note === 'interrupted';
             return <article className={'message ' + message.role + (failed ? ' failed' : '') + (KHMER.test(message.text) ? ' khmer' : '')} key={message.id} aria-busy={message.pending || undefined}>
               <div className={'message-name' + (message.role === 'user' ? ' visually-hidden' : '')}>{message.role === 'user' ? 'You' : 'Sulvana'}{message.pending ? <span className="thinking">{L('working', 'កំពុងគិត')}</span> : message.note === 'stopped' && message.text && message.text !== NOTE_TEXT.stopped ? <span className="thinking">{L('stopped early', 'បានឈប់មុន')}</span>
-                : message.translated ? <span className="thinking" title={message.translated === 'google' ? 'Sulvana answered in English and Google Translate wrote this Khmer (Settings → Better Khmer)' : 'Sulvana answered in English and the translator on this computer wrote this Khmer (Settings → Better Khmer)'}>{message.translated === 'google' ? L('via Google Translate', 'បកប្រែដោយ Google') : L('translated on this computer', 'បកប្រែលើកុំព្យូទ័រនេះ')}</span> : null}</div>
+                : message.translated ? <span className="thinking" title={message.translated === 'google' ? L("Written with Google's Khmer tools (Settings → Khmer tools)", 'សរសេរដោយឧបករណ៍ភាសាខ្មែររបស់ Google (ការកំណត់ → ឧបករណ៍ភាសាខ្មែរ)') : L('Written with the Khmer tools on this computer (Settings → Khmer tools)', 'សរសេរដោយឧបករណ៍ភាសាខ្មែរនៅលើកុំព្យូទ័រនេះ (ការកំណត់ → ឧបករណ៍ភាសាខ្មែរ)')}>{message.translated === 'google' ? L('Khmer tools · Google', 'ឧបករណ៍ខ្មែរ · Google') : L('Khmer tools', 'ឧបករណ៍ខ្មែរ')}</span> : null}</div>
               {message.attachment && <div className="attachment-label"><ImagePlus size={14} />{message.attachment}</div>}
               {message.reasoning && <Reasoning text={message.reasoning} live={!!message.pending && !message.text} />}
               {message.note === 'error' ? <div className="message-body message-problem" dir="auto"><TriangleAlert size={15} aria-hidden="true" /><span>{message.text.replace(/^Error: /, '') || NOTE_TEXT.error}</span></div>
@@ -1392,7 +1392,7 @@ export default function DesktopApp() {
       <p className="form-note">{customLanguage ? 'Letters only. Leave it empty to match your message.' : 'Automatic replies in Khmer, or in the language you write in.'}</p>
       <div className="form-group">
         <div className="form-row">
-          <span id="setting-translate">{L('Better Khmer', 'ខ្មែរកាន់តែល្អ')}</span>
+          <span id="setting-translate">{L('Khmer tools', 'ឧបករណ៍ភាសាខ្មែរ')}</span>
           <div className="segmented" role="radiogroup" aria-labelledby="setting-translate">
             {(['off', 'local', 'google'] as const).map(choice => <button type="button" key={choice} role="radio" aria-checked={preferences.translate === choice}
               onClick={() => setPreferences(current => ({ ...current, translate: choice, translateAsked: true }))}>{choice === 'off' ? L('Off', 'បិទ') : choice === 'local' ? L('This computer', 'កុំព្យូទ័រនេះ') : 'Google'}</button>)}
@@ -1400,11 +1400,11 @@ export default function DesktopApp() {
         </div>
       </div>
       <p className="form-note">{preferences.translate === 'google'
-        ? L('Most accurate. Sulvana thinks in English and Google Translate writes the Khmer, so your Khmer messages and Sulvana\'s replies are sent to Google. If Google cannot be reached, the translator on this computer takes over.',
-          'ត្រឹមត្រូវបំផុត។ Sulvana គិតជាភាសាអង់គ្លេស ហើយ Google Translate សរសេរជាភាសាខ្មែរ ដូច្នេះសារជាភាសាខ្មែររបស់អ្នក និងចម្លើយរបស់ Sulvana ត្រូវបានផ្ញើទៅ Google។ ប្រសិនបើមិនអាចភ្ជាប់ទៅ Google បានទេ កម្មវិធីបកប្រែនៅលើកុំព្យូទ័រនេះនឹងជំនួស។')
+        ? L("Most accurate. Sulvana thinks in English and Google's Khmer tools write the answer, so your Khmer messages and Sulvana's replies are sent to Google. If Google cannot be reached, the tools on this computer take over.",
+          'ត្រឹមត្រូវបំផុត។ Sulvana គិតជាភាសាអង់គ្លេស ហើយឧបករណ៍ភាសាខ្មែររបស់ Google សរសេរចម្លើយ ដូច្នេះសារជាភាសាខ្មែររបស់អ្នក និងចម្លើយរបស់ Sulvana ត្រូវបានផ្ញើទៅ Google។ ប្រសិនបើមិនអាចភ្ជាប់ទៅ Google បានទេ ឧបករណ៍នៅលើកុំព្យូទ័រនេះនឹងជំនួស។')
         : preferences.translate === 'local'
-          ? L('Private. Sulvana thinks in English and a translator on this computer (NLLB) writes the Khmer. Nothing is sent online. The translation sometimes picks the wrong word.',
-            'ឯកជន។ Sulvana គិតជាភាសាអង់គ្លេស ហើយកម្មវិធីបកប្រែនៅលើកុំព្យូទ័រនេះ (NLLB) សរសេរជាភាសាខ្មែរ។ គ្មានអ្វីត្រូវបានផ្ញើទៅអ៊ីនធឺណិតទេ។ ការបកប្រែពេលខ្លះប្រើពាក្យខុស។')
+          ? L('Private. Sulvana thinks in English and Khmer tools on this computer write the answer. Nothing is sent online. The tools sometimes pick the wrong word.',
+            'ឯកជន។ Sulvana គិតជាភាសាអង់គ្លេស ហើយឧបករណ៍ភាសាខ្មែរនៅលើកុំព្យូទ័រនេះ សរសេរចម្លើយ។ គ្មានអ្វីត្រូវបានផ្ញើទៅអ៊ីនធឺណិតទេ។ ពេលខ្លះឧបករណ៍ប្រើពាក្យខុស។')
           : L('Sulvana writes Khmer itself. Private, but with more spelling and grammar mistakes.',
             'Sulvana សរសេរភាសាខ្មែរដោយខ្លួនឯង។ ឯកជន ប៉ុន្តែមានកំហុសអក្ខរាវិរុទ្ធ និងវេយ្យាករណ៍ច្រើនជាង។')}</p>
       <div className="form-group">
@@ -1498,7 +1498,7 @@ export default function DesktopApp() {
       <div className="form-group">
         <div className="form-row"><span>Local documentation</span><em>Available</em></div>
         <div className="form-row"><span>Public web search</span><em className="online">Online · when asked</em></div>
-        <div className="form-row"><span>Khmer translator</span><em className={preferences.translate === 'google' ? 'online' : ''}>{preferences.translate === 'google' ? 'Online · Google' : preferences.translate === 'local' ? 'On this computer' : 'Off'}</em></div>
+        <div className="form-row"><span>{L('Khmer tools', 'ឧបករណ៍ភាសាខ្មែរ')}</span><em className={preferences.translate === 'google' ? 'online' : ''}>{preferences.translate === 'google' ? 'Online · Google' : preferences.translate === 'local' ? 'On this computer' : 'Off'}</em></div>
         <div className="form-row"><span>Read only terminal checks</span><em>Limited</em></div>
         <div className="form-row"><span>Coding mode (one project folder)</span><em>Asks first</em></div>
       </div>

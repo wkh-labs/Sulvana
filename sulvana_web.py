@@ -278,7 +278,7 @@ def main() -> None:
         def do_POST(self) -> None:
             if not self._check_access(): return
             req_path = urlsplit(self.path).path.rstrip("/")
-            if not self._is_local() and req_path in {"/api/approval", "/api/code/undo"}:
+            if not self._is_local() and req_path in {"/api/approval", "/api/code/undo", "/api/model", "/api/restart"}:
                 self._send(403, b"Forbidden: Coding mode and system approvals are only available locally on the laptop", "text/plain"); return
             if req_path == "/api/speak":
                 # Read a Khmer reply aloud with the speech model on this computer (sulvana_speech.py).
@@ -331,11 +331,12 @@ def main() -> None:
                                and isinstance(m.get("content"), str) and m["content"].strip()][-6:]
                     record = {"messages": [*({"role": m["role"], "content": m["content"].strip()} for m in history),
                                            {"role": "user", "content": prompt}, {"role": "assistant", "content": answer}],
-                              "meta": {"source": "user-feedback", "rating": rating, "model": str(item.get("model", ""))[:120],
+                              "meta": {"source": "user-feedback" if self._is_local() else "remote-feedback", "rating": rating, "model": str(item.get("model", ""))[:120],
                                        "original": str(item.get("original", ""))[:20000] if rating == "corrected" else None,
                                        "created": time.strftime("%Y-%m-%dT%H:%M:%S%z")}}
                     FEEDBACK_FILE.parent.mkdir(parents=True, exist_ok=True)
-                    with open(FEEDBACK_FILE, "a", encoding="utf-8") as handle:
+                    # A friend's feedback on the shared link is kept apart, so it never enters training unreviewed.
+                    with open(FEEDBACK_FILE if self._is_local() else FEEDBACK_FILE.with_name("remote.jsonl"), "a", encoding="utf-8") as handle:
                         handle.write(json.dumps(record, ensure_ascii=False) + "\n")
                     self._send(204, b"", "text/plain")
                 except (ValueError, TypeError, AttributeError, json.JSONDecodeError, OSError) as problem:
