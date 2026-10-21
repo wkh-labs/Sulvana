@@ -172,16 +172,19 @@ def main() -> None:
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.0"
 
+        def _who(self) -> str:
+            if self._is_local():
+                return "local"
+            return ("friend " + (self.headers.get("CF-Connecting-IP") or self.client_address[0])
+                    + (f" ({self.headers.get('CF-IPCountry')})" if self.headers.get("CF-IPCountry") else ""))
+
         def log_message(self, format, *args) -> None:
             # One line per request: who (this computer, or a friend on the shared link with the IP address and
-            # country Cloudflare reports), what, and the result. Chat text is never logged.
+            # country Cloudflare reports), what, and the result. For chats, the message and the reply are logged
+            # too (see share-logs.sh); they stay in this computer's system journal.
             try:
                 code = str(args[1]) if len(args) > 1 else ""
-                if self._is_local():
-                    who = "local "
-                else:
-                    who = ("friend " + (self.headers.get("CF-Connecting-IP") or self.client_address[0])
-                           + (f" ({self.headers.get('CF-IPCountry')})" if self.headers.get("CF-IPCountry") else ""))
+                who = self._who()
                 extra = getattr(self, "log_extra", "")
                 sys.stderr.write(f"[{time.strftime('%H:%M:%S')}] {who:<26} {self.command} {self.path.split('?')[0]} -> {code}"
                                  + (f"  {extra}" if extra else "") + "\n")
@@ -400,7 +403,8 @@ def main() -> None:
                                   + (f", khmer tools {request.get('translate')}" if request.get("translate") else "")
                                   + (", search" if request.get("search") is True else "")
                                   + (", search when unsure" if request.get("autoSearch") is True else "")
-                                  + (", image attached" if request.get("image") else ""))
+                                  + (", image attached" if request.get("image") else "")
+                                  + f'\n           asked: "{" ".join(prompt.split())[:600]}"')
                 image_data = request.get("image")
             except (ValueError, json.JSONDecodeError) as error:
                 self._send(400, str(error).encode(), "text/plain"); return
@@ -439,9 +443,24 @@ def main() -> None:
                 self._cors_headers()
                 self.end_headers()
                 streaming = True
+                started, reply, final = time.time(), "", None
                 while line := response.readline():
                     self.wfile.write(line)
                     self.wfile.flush()
+                    kind, _, data = line.decode("ascii", errors="replace").strip().partition("\t")
+                    try:
+                        if kind == "t":
+                            reply += base64.b64decode(data).decode("utf-8", errors="replace")
+                        elif kind == "x":
+                            reply = ""
+                        elif kind == "d":
+                            final = json.loads(base64.b64decode(data)).get("clean_reply")
+                    except (ValueError, base64.binascii.Error):
+                        pass
+                text = final if isinstance(final, str) and final else reply
+                sys.stderr.write(f"[{time.strftime('%H:%M:%S')}] {self._who():<26} reply ({len(text)} chars, "
+                                 f"{time.time() - started:.0f}s): \"{' '.join(text.split())[:800]}\"\n")
+                sys.stderr.flush()
             except (BrokenPipeError, ConnectionResetError):
                 try: engine.request("POST", "/stop").read()
                 except Exception: pass

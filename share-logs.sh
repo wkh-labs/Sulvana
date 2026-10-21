@@ -3,7 +3,7 @@
 # "friend" with their IP address and country) and the Cloudflare tunnel's own messages.
 #   ./share-logs.sh          requests and tunnel events (the app's status checks every few seconds are hidden)
 #   ./share-logs.sh --all    everything, including the status checks
-# Chat text is never logged, only its size and settings. Press Ctrl+C to stop watching (sharing keeps running).
+# Chats show the message and the start of the reply. Press Ctrl+C to stop watching (sharing keeps running).
 set -u
 cd "$(dirname "${BASH_SOURCE[0]}")"
 FILTER='GET /api/status'
