@@ -36,10 +36,14 @@ engine_status() { curl --silent --max-time 2 "$SULVANA_URL" 2>/dev/null || true;
 
 start_engine() {
   if ! systemctl --user is-active --quiet sulvana-web.service; then
-    # SULVANA_LORA_ADAPTER is an opt-in test hook (see finetune/README.md); unset means plain Dolphin.
+    local env_args=()
+    for var in SULVANA_BASE SULVANA_CONTEXT SULVANA_GPU_HEADROOM_MB SULVANA_LORA_ADAPTER SULVANA_LORA_SCALE SULVANA_LORA_KHMER SULVANA_LORA_OTHER SULVANA_KHMER_ADAPTER; do
+      if [[ -n "${!var:-}" ]]; then
+        env_args+=("--setenv=$var=${!var}")
+      fi
+    done
     systemd-run --user --collect --unit=sulvana-web \
-      ${SULVANA_LORA_ADAPTER:+--setenv=SULVANA_LORA_ADAPTER="$SULVANA_LORA_ADAPTER"} \
-      ${SULVANA_LORA_SCALE:+--setenv=SULVANA_LORA_SCALE="$SULVANA_LORA_SCALE"} \
+      "${env_args[@]}" \
       "$SULVANA_APP/sulvana-web.sh" >/dev/null
   fi
   for attempt in {1..90}; do
@@ -49,9 +53,13 @@ start_engine() {
   return 1
 }
 
-if [[ -n "${SULVANA_LORA_ADAPTER:-}" ]] && systemctl --user is-active --quiet sulvana-web.service; then
-  echo "Sulvana's engine is already running, so SULVANA_LORA_ADAPTER is ignored." >&2
-  echo "Run 'systemctl --user stop sulvana-web' first to load the adapter." >&2
+running_overrides=()
+for var in SULVANA_BASE SULVANA_CONTEXT SULVANA_GPU_HEADROOM_MB SULVANA_LORA_ADAPTER SULVANA_LORA_SCALE SULVANA_LORA_KHMER SULVANA_LORA_OTHER SULVANA_KHMER_ADAPTER; do
+  [[ -n "${!var:-}" ]] && running_overrides+=("$var")
+done
+if [[ ${#running_overrides[@]} -gt 0 ]] && systemctl --user is-active --quiet sulvana-web.service; then
+  echo "Sulvana's engine is already running, so ${running_overrides[*]} are ignored." >&2
+  echo "Run 'systemctl --user stop sulvana-web' first to apply new environment settings." >&2
 fi
 
 status="$(engine_status)"

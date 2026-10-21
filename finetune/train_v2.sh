@@ -18,12 +18,12 @@ if [ "$(free_mib)" -lt 6300 ]; then
   for _ in $(seq 1 1440); do [ "$(free_mib)" -ge 6300 ] && break; sleep 30; done
 fi
 say "training $RUN ($EPOCHS epochs), $(free_mib) MiB free"
-.venv/bin/python finetune/train.py --force --run-name "$RUN" --config finetune/mimo-khmer-qlora-8gb.yaml \
+.venv/bin/python finetune/train.py --force ${RESUME:+--resume} --run-name "$RUN" --config finetune/mimo-khmer-qlora-8gb.yaml \
   --train-file datasets/khmer-v2/train.jsonl --val-file datasets/khmer-v2/val.jsonl \
   --set data.max_seq_length=1024 --set training.num_train_epochs="$EPOCHS" \
   --set training.per_device_train_batch_size=1 --set training.gradient_accumulation_steps=16 \
   --set training.eval_steps=25 --set training.save_steps=25 --set training.save_total_limit=20 \
-  --set thermal.resume_gpu_temp_c=72 > "runs/finetune/$RUN.console.log" 2>&1
+  --set thermal.max_gpu_temp_c="${MAX_GPU_TEMP:-80}" --set thermal.resume_gpu_temp_c=72 > "runs/finetune/$RUN.console.log" 2>&1
 status=$?
 say "training exit $status; $(grep -a 'done:' "$OUT/train.log" | tail -1 | cut -c1-160)"
 [ "$status" -eq 0 ] || exit "$status"
@@ -46,7 +46,7 @@ def score(label):
     skb = json.load(open(f"runs/benchmark/skb-{label}/report.json"))["totals"]["overall"]
     kbai = json.load(open(f"runs/benchmark/{label}/report.json"))["summary"]
     return round(100 * skb[0] / skb[1], 1), kbai["accuracy_percent"]
-rows = {"plain MiMo": score("mimo-base"), "v1 adapter x0.3": score("mimo-khmer-01-x0.3")}
+rows = {"plain MiMo": score("mimo-base"), "v1 adapter x0.3": score("mimo-khmer-01-x0.3"), "v2 adapter x0.3": score("mimo-khmer-v2-x0.3")}
 for s in ("0.3", "0.6", "1.0"):
     rows[f"{run} x{s}"] = score(f"{run}-x{s}")
 print("==== RESULTS (hard Khmer benchmark %, 800-question dev set %)")

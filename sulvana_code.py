@@ -525,6 +525,8 @@ class CodeSession:
             end = int(fields.get("end") or start + MAX_READ_LINES - 1)
         except ValueError:
             raise CodeError("start and end must be line numbers.") from None
+        if end < start:
+            raise CodeError("end line must be greater than or equal to start line.")
         end = min(len(lines), end, start + MAX_READ_LINES - 1)
         if not lines:
             return f"{self._rel(path)} is empty.", "(empty file)", "done"
@@ -580,7 +582,7 @@ class CodeSession:
         (self.checkpoint / "manifest.json").write_text(json.dumps(
             {"root": str(self.root), "created": time.time(), "files": self.saved}, ensure_ascii=False))
 
-    def _save(self, path: Path, old: str | None, new: str, kind: str) -> tuple[str, str, str]:
+    def _save(self, path: Path, old: str | None, new: str, kind: str, crlf: bool = False) -> tuple[str, str, str]:
         relative = self._rel(path)
         diff = "".join(difflib.unified_diff((old or "").splitlines(True), new.splitlines(True),
                                             "/dev/null" if old is None else f"a/{relative}", f"b/{relative}"))
@@ -593,7 +595,6 @@ class CodeSession:
                     diff, "denied")
         self._backup(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        crlf = old is not None and "\r\n" in old
         with open(path, "w", encoding="utf-8", newline="\r\n" if crlf else "\n") as handle:
             handle.write(new)
         summary = (f"{'Created' if old is None else 'Edited'} {relative} (+{added} −{removed} lines). "
@@ -608,21 +609,24 @@ class CodeSession:
         if not edits:
             raise CodeError("edit_file needs at least one <search>…</search><replace>…</replace> pair.")
         original = self._text(path)
+        crlf = "\r\n" in original
         text = original.replace("\r\n", "\n")
         for number, (search, replace) in enumerate(edits, 1):
             text = _apply_edit(text, search, replace, self._rel(path), number if len(edits) > 1 else 0)
         if text == original.replace("\r\n", "\n"):
             raise CodeError("The edit would not change the file.")
-        return self._save(path, original.replace("\r\n", "\n"), text, "edit")
+        return self._save(path, original.replace("\r\n", "\n"), text, "edit", crlf=crlf)
 
     def _edit_lines(self, path: Path, fields: dict) -> tuple[str, str, str]:
         """Replace a range of lines by number. Only allowed when the model's line numbers are current."""
         relative = self._rel(path)
-        original = self._text(path).replace("\r\n", "\n")
+        original = self._text(path)
+        crlf = "\r\n" in original
+        norm = original.replace("\r\n", "\n")
         if self.seen.get(path) != path.stat().st_mtime_ns:
             raise CodeError(f"{relative} has changed since you last read it (or you have not read it yet), so the line "
                             "numbers may be wrong. Use read_file first, then edit with the new numbers.")
-        lines = original.split("\n")
+        lines = norm.split("\n")
         trailing = lines and lines[-1] == ""
         if trailing:
             lines.pop()
@@ -636,9 +640,9 @@ class CodeSession:
         new = fields.get("replace", fields.get("content", ""))
         replacement = new.strip("\n").split("\n") if new.strip("\n") else []
         text = "\n".join(lines[:start - 1] + replacement + lines[end:]) + ("\n" if trailing else "")
-        if text == original:
+        if text == norm:
             raise CodeError("The edit would not change the file.")
-        return self._save(path, original, text, "edit")
+        return self._save(path, norm, text, "edit", crlf=crlf)
 
     def _write_file(self, fields: dict) -> tuple[str, str, str]:
         path = self._writable(fields.get("path"))
@@ -649,7 +653,9 @@ class CodeSession:
             raise CodeError("The file content is larger than 1 MB.")
         if content and not content.endswith("\n"):
             content += "\n"
-        old = self._text(path).replace("\r\n", "\n") if path.exists() else None
+        old_raw = self._text(path) if path.exists() else None
+        crlf = old_raw is not None and "\r\n" in old_raw
+        old = old_raw.replace("\r\n", "\n") if old_raw is not None else None
         if old == content:
             raise CodeError("The file already has exactly this content.")
         if old is not None:
@@ -660,7 +666,7 @@ class CodeSession:
                 raise CodeError(f"Not written: this would delete {lost} of the {len(lines)} lines in {self._rel(path)}. "
                                 "write_file replaces the whole file. To add code, use edit_file with an empty <search> "
                                 "(adds at the end) or search for nearby lines; to change code, use edit_file.")
-        return self._save(path, old, content, "write")
+        return self._save(path, old, content, "write", crlf=crlf)
 
     def _run_command(self, fields: dict) -> tuple[str, str, str]:
         command = (fields.get("command") or "").strip()
@@ -789,6 +795,13 @@ def undo_task(task: str) -> list[str]:
         if entry is None:
             if target.is_file():
                 target.unlink()
+                parent = target.parent
+                while parent != root and parent.is_relative_to(root):
+                    try:
+                        parent.rmdir()
+                        parent = parent.parent
+                    except OSError:
+                        break
         else:
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(folder / entry, target)

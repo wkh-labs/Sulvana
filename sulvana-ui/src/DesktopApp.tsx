@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { ArrowDown, ArrowUp, Brain, FileDown, RefreshCw, Check, ChevronRight, ChevronsDown, Code, Copy, Download, FilePen, FilePlus, FileText, FolderCode, FolderOpen, Globe, Image as ImageIcon, ImagePlus, Lightbulb, PencilLine, ThumbsUp, MessageCircle, Paperclip, RotateCcw, Search, Settings, ShieldCheck, Sparkles, Square, SquarePen, SquareTerminal, Trash2, TriangleAlert, Undo2, Wrench, X, type LucideIcon } from 'lucide-react';
+import { ArrowDown, ArrowUp, Menu, Brain, FileDown, RefreshCw, Check, ChevronRight, ChevronsDown, Code, Copy, Download, FilePen, FilePlus, FileText, FolderCode, FolderOpen, Globe, Image as ImageIcon, ImagePlus, Lightbulb, PencilLine, ThumbsUp, MessageCircle, Paperclip, RotateCcw, Search, Settings, ShieldCheck, Sparkles, Square, SquarePen, SquareTerminal, Trash2, TriangleAlert, Undo2, Wrench, X, type LucideIcon } from 'lucide-react';
 import { Markdown } from './markdown';
 import { WKH_MARK_DARK, WKH_MARK_LIGHT } from './wkhLogo';
 import './desktop.css';
@@ -43,6 +43,8 @@ type Message = {
   code?: CodeTask;
   /** The user rated or corrected this reply; it was saved as a training example. */
   feedback?: 'good' | 'corrected';
+  /** The Khmer was written by the online translator from Sulvana's English answer. */
+  translated?: boolean;
 };
 type ModelChoice = { id: string; label: string; detail: string; available: boolean };
 type CodeStep = { id: string; tool: string; title: string; status: 'running' | 'done' | 'error' | 'denied'; detail?: string };
@@ -51,10 +53,10 @@ type CodeTask = { task: string; root: string; changed: string[]; undone?: boolea
 /** A web result (url) or a section of a local Markdown note (file). */
 type Source = { title: string; url?: string; file?: string };
 type Conversation = { id: string; title: string; messages: Message[]; updatedAt?: number };
-type Preferences = { temperature: number; maxTokens: number; language: string; theme: 'dark' | 'light'; reasoning: boolean; code: boolean; codeRoot: string; textSize: TextSize };
+type Preferences = { temperature: number; maxTokens: number; language: string; theme: 'dark' | 'light'; reasoning: boolean; code: boolean; codeRoot: string; textSize: TextSize; translate: boolean; translateAsked: boolean };
 type EngineStatus = { state: string; detail: string; approval?: ApprovalRequest | null };
 type Dialog = 'settings' | 'tools' | 'delete' | 'improve' | null;
-type StreamPayload = { prompt: string; image?: string; history: { role: string; content: string }[]; maxTokens: number; temperature: number; language: string; search?: boolean; reasoning?: boolean; code?: { root: string } };
+type StreamPayload = { prompt: string; image?: string; history: { role: string; content: string }[]; maxTokens: number; temperature: number; language: string; search?: boolean; reasoning?: boolean; translate?: boolean; code?: { root: string } };
 type ApprovalRequest = { id: string; command: string; reason: string; timeout_seconds: number; kind?: 'read' | 'edit' | 'write' | 'command'; title?: string; diff?: string; allow_all?: boolean };
 type Attachment = { name: string; data: string };
 type Notice = { kind: 'error' | 'info'; text: string };
@@ -64,8 +66,9 @@ const STORAGE = 'sulvana.desktop.v1';
 const LANGUAGES = ['Auto', 'ខ្មែរ (Khmer)', 'English', '中文 (Chinese)', 'ไทย (Thai)', 'Tiếng Việt (Vietnamese)', 'Français', '日本語 (Japanese)', 'العربية (Arabic)'];
 // Khmer needs roughly 1.7 tokens per character, so the limits are generous.
 const TOKEN_LIMITS = [512, 1024, 2048, 4096, 8192];
+const LENGTH_NAMES: Record<number, string> = { 512: 'Short', 1024: 'Medium', 2048: 'Long', 4096: 'Very long', 8192: 'Longest' };
 type TextSize = 'small' | 'default' | 'large';
-const DEFAULT_PREFERENCES: Preferences = { temperature: 0.4, maxTokens: 2048, language: 'Auto', theme: 'dark', reasoning: false, code: false, codeRoot: '', textSize: 'default' };
+const DEFAULT_PREFERENCES: Preferences = { temperature: 0.4, maxTokens: 2048, language: 'Auto', theme: 'dark', reasoning: false, code: false, codeRoot: '', textSize: 'default', translate: false, translateAsked: false };
 const KHMER = /[\u1780-\u17FF]/;
 const NOTE_TEXT: Record<Note, string> = {
   error: 'Something went wrong.',
@@ -86,13 +89,32 @@ function legacyNote(text: string): Note | undefined {
 }
 
 function cleanSources(raw: unknown[]): Source[] {
-  return raw.filter((item): item is Source => !!item && typeof (item as Source).title === 'string'
-    && (/^https?:\/\//.test(String((item as Source).url)) || /^knowledge\/[^\n]{1,200}\.md$/.test(String((item as Source).file)))).slice(0, 11)
-    .map(item => item.url ? { title: item.title.slice(0, 200), url: item.url } : { title: item.title.slice(0, 200), file: item.file });
+  const seen = new Set<string>();
+  const cleaned: Source[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const src = item as Source;
+    if (typeof src.title !== 'string') continue;
+    const isUrl = /^https?:\/\//.test(String(src.url));
+    const isNote = /^knowledge\/[^\n]{1,200}\.md$/.test(String(src.file));
+    if (!isUrl && !isNote) continue;
+    const key = (src.url || src.file || '').trim();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    cleaned.push(src.url ? { title: src.title.slice(0, 200), url: src.url } : { title: src.title.slice(0, 200), file: src.file });
+    if (cleaned.length >= 11) break;
+  }
+  return cleaned;
 }
 
 function hostOf(url: string): string {
   try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; }
+}
+
+/** "knowledge/cambodia-facts.md" → "Cambodia facts" */
+function noteName(file: string): string {
+  const name = (file.split('/').pop() || file).replace(/\.md$/i, '').replace(/[-_]+/g, ' ').trim();
+  return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
 function cleanMessage(raw: unknown): Message | null {
@@ -100,11 +122,12 @@ function cleanMessage(raw: unknown): Message | null {
   const item = raw as Partial<Message>;
   if ((item.role !== 'user' && item.role !== 'assistant') || typeof item.text !== 'string') return null;
   const message: Message = { id: typeof item.id === 'string' ? item.id : createId(), role: item.role, text: item.text };
-  if (typeof item.image === 'string' && item.image.startsWith('/api/image?')) message.image = item.image;
+  if (typeof item.image === 'string' && (item.image.startsWith('/api/image?') || item.image.includes('/api/image?'))) message.image = item.image;
   if (typeof item.attachment === 'string') message.attachment = item.attachment;
   if (item.plain === true) message.plain = true;
   if (typeof item.reasoning === 'string' && item.reasoning) message.reasoning = item.reasoning;
   if (item.cut === true) message.cut = true;
+  if (item.translated === true) message.translated = true;
   if (item.feedback === 'good' || item.feedback === 'corrected') message.feedback = item.feedback;
   if (Array.isArray(item.sources)) message.sources = cleanSources(item.sources);
   if (Array.isArray(item.parts)) {
@@ -138,6 +161,9 @@ function cleanPreferences(raw: unknown): Preferences {
     code: saved.code === true,
     codeRoot: typeof saved.codeRoot === 'string' ? saved.codeRoot.slice(0, 1000) : '',
     textSize: saved.textSize === 'small' || saved.textSize === 'large' ? saved.textSize : 'default',
+    // The online translator sends text to Google, so it is only on after the user said yes.
+    translate: saved.translate === true && saved.translateAsked === true,
+    translateAsked: saved.translateAsked === true,
   };
 }
 
@@ -226,9 +252,69 @@ function eventParser(onEvent: (kind: string, data: string) => void) {
   };
 }
 
+let memoryConfig: { tunnel: string; key: string } | null = null;
+
+function getRemoteConfig(): { tunnel: string; key: string } {
+  try {
+    if (typeof window === 'undefined') return { tunnel: '', key: '' };
+    const params = new URLSearchParams(window.location.search);
+    const paramTunnel = params.get('tunnel');
+    const paramKey = params.get('key');
+    if (paramTunnel !== null || paramKey !== null) {
+      const config = {
+        tunnel: (paramTunnel ?? localStorage.getItem('sulvana.remote.tunnel') ?? '').trim(),
+        key: (paramKey ?? localStorage.getItem('sulvana.remote.key') ?? '').trim(),
+      };
+      if (config.tunnel) {
+        try { localStorage.setItem('sulvana.remote.tunnel', config.tunnel); } catch {}
+        try { sessionStorage.setItem('sulvana.remote.tunnel', config.tunnel); } catch {}
+      }
+      if (config.key) {
+        try { localStorage.setItem('sulvana.remote.key', config.key); } catch {}
+        try { sessionStorage.setItem('sulvana.remote.key', config.key); } catch {}
+      }
+      memoryConfig = config;
+      return config;
+    }
+    if (memoryConfig && memoryConfig.tunnel) return memoryConfig;
+    const envTunnel = (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_API_URL ?? '';
+    const envKey = (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_API_KEY ?? '';
+    let storedTunnel = '';
+    let storedKey = '';
+    try { storedTunnel = localStorage.getItem('sulvana.remote.tunnel') || ''; } catch {}
+    if (!storedTunnel) { try { storedTunnel = sessionStorage.getItem('sulvana.remote.tunnel') || ''; } catch {} }
+    try { storedKey = localStorage.getItem('sulvana.remote.key') || ''; } catch {}
+    if (!storedKey) { try { storedKey = sessionStorage.getItem('sulvana.remote.key') || ''; } catch {} }
+    const config = { tunnel: (storedTunnel || envTunnel).trim(), key: (storedKey || envKey).trim() };
+    if (config.tunnel) memoryConfig = config;
+    return config;
+  } catch {
+    return memoryConfig || { tunnel: '', key: '' };
+  }
+}
+
+function api(path: string): string {
+  if (path.startsWith('http://') || path.startsWith('https://')) return path;
+  let { tunnel, key } = getRemoteConfig();
+  if (!tunnel) return path;
+  tunnel = tunnel.trim().replace(/\/+$/, '');
+  if (!/^https?:\/\//i.test(tunnel)) tunnel = `https://${tunnel}`;
+  const url = `${tunnel}${path}`;
+  if (key) {
+    const sep = url.includes('?') ? '&' : '?';
+    return `${url}${sep}key=${encodeURIComponent(key)}`;
+  }
+  return url;
+}
+
+function apiHeaders(headers: Record<string, string> = {}): Record<string, string> {
+  const { key } = getRemoteConfig();
+  return key ? { ...headers, 'X-Sulvana-Key': key } : headers;
+}
+
 async function requestFetchStream(payload: StreamPayload, signal: AbortSignal, onEvent: (kind: string, data: string) => void): Promise<void> {
-  const response = await fetch('/api/chat', {
-    method: 'POST', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+  const response = await fetch(api('/api/chat'), {
+    method: 'POST', signal, headers: apiHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(payload),
   });
   if (!response.ok) throw new HttpError(response.status, (await response.text()).trim() || 'Could not contact the local model.');
   const reader = response.body?.getReader();
@@ -262,8 +348,9 @@ function requestXhrStream(payload: StreamPayload, signal: AbortSignal, onEvent: 
       read = xhr.responseText.length;
       parser.push(chunk, final);
     };
-    xhr.open('POST', '/api/chat', true);
-    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.open('POST', api('/api/chat'), true);
+    const headers = apiHeaders({ 'Content-Type': 'application/json' });
+    for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v);
     xhr.onprogress = () => {
       try { if (xhr.status === 200) process(); }
       catch (error) { finish(error as Error); xhr.abort(); }
@@ -454,11 +541,17 @@ export default function DesktopApp() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [restarting, setRestarting] = useState(false);
   const [searchOn, setSearchOn] = useState(false);
+  // Phones: the chat list is a drawer opened from the top bar.
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [models, setModels] = useState<{ current: string | null; models: ModelChoice[] } | null>(null);
   const [improving, setImproving] = useState<{ id: string; text: string } | null>(null);
   const [query, setQuery] = useState('');
   const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null);
   const [atBottom, setAtBottom] = useState(true);
+  const [remoteConfig, setRemoteConfig] = useState(() => getRemoteConfig());
+  const [tunnelInput, setTunnelInput] = useState(() => getRemoteConfig().tunnel);
+  const [keyInput, setKeyInput] = useState(() => getRemoteConfig().key);
+  const [copiedLink, setCopiedLink] = useState(false);
   const searchBox = useRef<HTMLInputElement>(null);
   const workspace = useRef<HTMLElement>(null);
   const composerWrap = useRef<HTMLDivElement>(null);
@@ -479,11 +572,13 @@ export default function DesktopApp() {
   busyRef.current = busy;
   modelDetailRef.current = modelDetail;
 
+  const isRemoteWeb = typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+  const isRemote = isRemoteWeb || Boolean(remoteConfig.tunnel);
   const engineDown = status.state === 'fatal' || status.state === 'error' || status.state === 'offline';
   const ready = status.state === 'ready';
   // Progress messages from the engine end with an ellipsis; anything else is the model description.
   const progress = status.detail.trim().endsWith('…') ? status.detail.trim() : '';
-  const adapter = /\+ LoRA ([A-Za-z0-9._-]+)/.exec(modelDetail)?.[1];
+  const adapter = /\+ LoRA ([A-Za-z0-9._+-]+)/.exec(modelDetail)?.[1];
   // The engine reports "<assistant name> • <model it is built on> • <GPU> • <quantisation>".
   const [modelName = 'Sulvana', builtOn = ''] = modelDetail ? modelDetail.split(' • ') : [];
   const baseModel = builtOn.replace(/ \+ LoRA .*$/, '');
@@ -510,9 +605,14 @@ export default function DesktopApp() {
   useEffect(() => { followReply.current = true; bottom.current?.scrollIntoView({ block: 'end' }); }, [activeId]);
   useEffect(() => { composer.current?.focus(); }, []);
   useEffect(() => { document.documentElement.dataset.textSize = preferences.textSize; }, [preferences.textSize]);
-  // Shortcuts: Ctrl+N new chat, Ctrl+K search chats, Ctrl+, settings, Ctrl+Shift+E export.
+  // Shortcuts: Escape stops reply, Ctrl+N new chat, Ctrl+K search chats, Ctrl+, settings, Ctrl+Shift+E export.
   const shortcuts = useRef<(event: KeyboardEvent) => void>(() => undefined);
   shortcuts.current = (event: KeyboardEvent) => {
+    if (event.key === 'Escape' && busyRef.current && !dialog && !approval) {
+      event.preventDefault();
+      stop();
+      return;
+    }
     if (!(event.ctrlKey || event.metaKey) || dialog || approval) return;
     const key = event.key.toLowerCase();
     if (key === 'n' && !event.shiftKey) { event.preventDefault(); startChat(); }
@@ -565,12 +665,20 @@ export default function DesktopApp() {
       const startedAt = performance.now();
       let next: EngineStatus;
       try {
-        // Error replies from the local server still describe the engine as JSON.
-        const body = await (await fetch('/api/status', { cache: 'no-store' })).json() as EngineStatus;
-        if (!body || typeof body.state !== 'string') throw new Error('Invalid status');
-        next = { state: body.state, detail: typeof body.detail === 'string' ? body.detail : '', approval: body.approval };
-      } catch {
-        next = { state: 'offline', detail: 'The local service is not responding.' };
+        const target = api('/api/status');
+        const res = await fetch(target, { headers: apiHeaders() });
+        const body = await res.json() as EngineStatus;
+        if (!res.ok) {
+          next = { state: 'offline', detail: body?.detail || `Server returned HTTP ${res.status}` };
+        } else if (!body || typeof body.state !== 'string') {
+          throw new Error('Invalid JSON response');
+        } else {
+          next = { state: body.state, detail: typeof body.detail === 'string' ? body.detail : '', approval: body.approval };
+        }
+      } catch (err) {
+        const targetHost = getRemoteConfig().tunnel || 'local engine';
+        const msg = err instanceof Error ? err.message : String(err);
+        next = { state: 'offline', detail: isRemote ? `Cannot reach ${targetHost} (${msg})` : 'The local service is not responding.' };
       }
       running = false;
       if (!alive) return;
@@ -683,7 +791,7 @@ export default function DesktopApp() {
     approvalSeenAt.current = performance.now();
     setApproval(null);
     // Ask the engine to stop first so the reply ends cleanly; cut the connection if it does not.
-    void fetch('/api/stop', { method: 'POST' }).catch(() => undefined);
+    void fetch(api('/api/stop'), { method: 'POST', headers: apiHeaders() }).catch(() => undefined);
     window.setTimeout(() => controller.abort(), 1500);
     focusComposer();
   }
@@ -694,8 +802,8 @@ export default function DesktopApp() {
     setApprovalSubmitting(true);
     setApprovalError('');
     try {
-      const response = await fetch('/api/approval', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+      const response = await fetch(api('/api/approval'), {
+        method: 'POST', headers: apiHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ id: request.id, decision }),
       });
       if (!response.ok && response.status !== 409) throw new Error('Could not send your decision.');
@@ -721,7 +829,7 @@ export default function DesktopApp() {
   async function undoTask(chatId: string, message: Message) {
     if (!message.code || message.code.undone) return;
     try {
-      const response = await fetch('/api/code/undo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ task: message.code.task }) });
+      const response = await fetch(api('/api/code/undo'), { method: 'POST', headers: apiHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ task: message.code.task }) });
       const text = await response.text();
       if (!response.ok) throw new Error(text || 'Could not undo these changes.');
       const restored: string[] = JSON.parse(text).restored || [];
@@ -735,7 +843,10 @@ export default function DesktopApp() {
   // Settings: which model the engine runs. Switching restarts the engine with the other model.
   useEffect(() => {
     if (dialog !== 'settings') return;
-    fetch('/api/models', { cache: 'no-store' }).then(r => r.json()).then(setModels).catch(() => setModels(null));
+    const current = getRemoteConfig();
+    setTunnelInput(current.tunnel);
+    setKeyInput(current.key);
+    fetch(api('/api/models'), { cache: 'no-store', headers: apiHeaders() }).then(r => r.json()).then(setModels).catch(() => setModels(null));
   }, [dialog]);
 
   async function switchModel(id: string) {
@@ -744,7 +855,7 @@ export default function DesktopApp() {
     setModels(current => current ? { ...current, current: id } : current);
     setNotice({ kind: 'info', text: `Switching to ${choice.label}… this takes about a minute${id === 'sulvana-1.0-code' ? '. It answers slowly: it is a 27B model running mostly from system memory' : ''}.` });
     try {
-      const response = await fetch('/api/model', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profile: id }) });
+      const response = await fetch(api('/api/model'), { method: 'POST', headers: apiHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ profile: id }) });
       if (!response.ok) throw new Error((await response.text()) || 'The model could not be started.');
       setModelDetail('');
     } catch (cause) {
@@ -758,8 +869,8 @@ export default function DesktopApp() {
     const request = position > 0 ? active.messages[position - 1] : undefined;
     if (!request || request.role !== 'user') return;
     try {
-      const response = await fetch('/api/feedback', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+      const response = await fetch(api('/api/feedback'), {
+        method: 'POST', headers: apiHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ prompt: request.text, answer, rating, original: message.text, model: modelDetail, history: historyFor(active.messages.slice(0, position - 1)) }),
       });
       if (!response.ok) throw new Error();
@@ -772,7 +883,7 @@ export default function DesktopApp() {
     if (restarting) return;
     setRestarting(true);
     try {
-      const response = await fetch('/api/restart', { method: 'POST' });
+      const response = await fetch(api('/api/restart'), { method: 'POST', headers: apiHeaders() });
       if (!response.ok && response.status !== 409) throw new Error();
       setNotice(null);
     } catch {
@@ -781,6 +892,38 @@ export default function DesktopApp() {
       setRestarting(false);
       pollNow.current();
     }
+  }
+
+  function saveRemoteSettings(tunnel: string, key: string) {
+    const cleanTunnel = tunnel.trim().replace(/\/+$/, '');
+    const cleanKey = key.trim();
+    try {
+      if (cleanTunnel) localStorage.setItem('sulvana.remote.tunnel', cleanTunnel);
+      else localStorage.removeItem('sulvana.remote.tunnel');
+      if (cleanKey) localStorage.setItem('sulvana.remote.key', cleanKey);
+      else localStorage.removeItem('sulvana.remote.key');
+    } catch {}
+    setRemoteConfig({ tunnel: cleanTunnel, key: cleanKey });
+    setNotice({ kind: 'info', text: cleanTunnel ? 'Saved laptop connection settings.' : 'Reset to local host connection.' });
+    pollNow.current();
+  }
+
+  function copyInviteLink() {
+    const tunnel = (tunnelInput || remoteConfig.tunnel).trim().replace(/\/+$/, '');
+    const key = (keyInput || remoteConfig.key).trim();
+    if (!tunnel) {
+      setNotice({ kind: 'error', text: 'Enter a tunnel URL first before copying the invite link.' });
+      return;
+    }
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const link = `${origin}/?tunnel=${encodeURIComponent(tunnel)}${key ? `&key=${encodeURIComponent(key)}` : ''}`;
+    navigator.clipboard.writeText(link).then(() => {
+      setCopiedLink(true);
+      setNotice({ kind: 'info', text: 'Friend invite link copied to clipboard!' });
+      setTimeout(() => setCopiedLink(false), 2500);
+    }).catch(() => {
+      setNotice({ kind: 'error', text: 'Could not copy to clipboard.' });
+    });
   }
 
   function saveImage(imageUrl: string) {
@@ -864,6 +1007,7 @@ export default function DesktopApp() {
       language: preferences.language.trim() || 'Auto',
       search: (searchOn && kind === 'chat' && !coding) || undefined,
       reasoning: (preferences.reasoning && kind === 'chat') || undefined,
+      translate: (preferences.translate && kind === 'chat' && !coding) || undefined,
       code: coding ? { root: preferences.codeRoot } : undefined,
     };
     setConversations(previous => previous.map(chat => chat.id === chatId
@@ -888,6 +1032,7 @@ export default function DesktopApp() {
     let cut = false;
     let parts: Part[] = [];
     let codeTask: CodeTask | undefined;
+    let translated = false;
     // In coding mode the reply text is the prose between steps, joined.
     const prose = () => parts.flatMap(part => part.kind === 'text' && part.text.trim() ? [part.text.trim()] : []).join('\n\n');
     try {
@@ -936,7 +1081,7 @@ export default function DesktopApp() {
           if (update.state === 'done') finished = true;
           if (update.answer) reply = update.answer;
           if (update.image_path) {
-            imageUrl = '/api/image?name=' + encodeURIComponent(update.image_path.split('/').pop());
+            imageUrl = api('/api/image?name=' + encodeURIComponent((update.image_path || '').split('/').pop() || ''));
             reply = `Generated image: ${prompt.replace(/^\/image\s*/i, '')}`;
           }
         }
@@ -948,11 +1093,13 @@ export default function DesktopApp() {
           cut = Boolean(metrics.truncated);
           if (metrics.code && typeof metrics.code.task === 'string') codeTask = metrics.code;
           if (metrics.loop_guard_triggered) setNotice({ kind: 'info', text: 'Sulvana stopped a reply that had started repeating itself.' });
+          if (typeof metrics.clean_reply === 'string') reply = metrics.clean_reply;
+          translated = metrics.translated === true;
         }
         updateMessage(chatId, assistant.id, message => ({ ...message, text: reply, reasoning: thoughts || undefined, sources: sources.length ? sources : undefined, image: imageUrl || undefined, parts: parts.length ? parts : undefined, activity: activity || message.activity }));
       });
       updateMessage(chatId, assistant.id, message => ({
-        ...message, text: reply, reasoning: thoughts || undefined, sources: sources.length ? sources : undefined, cut: cut || undefined,
+        ...message, text: reply, reasoning: thoughts || undefined, sources: sources.length ? sources : undefined, cut: cut || undefined, translated: translated || undefined,
         image: imageUrl || undefined, pending: false, activity: undefined, parts: parts.length ? parts : undefined, code: codeTask,
         note: stopped ? 'stopped' : reply || parts.length ? undefined : 'empty',
       }));
@@ -996,8 +1143,9 @@ export default function DesktopApp() {
         : 'Sulvana can make mistakes. Check important facts. · Sulvana អាចឆ្លើយខុស សូមផ្ទៀងផ្ទាត់ព័ត៌មានសំខាន់ៗ។';
   const rangeFill = `${((preferences.temperature - 0.1) / 1.4) * 100}%`;
 
-  return <div className="shell">
-    <aside className="sidebar">
+  return <div className={'shell' + (drawerOpen ? ' drawer-open' : '')}>
+    {drawerOpen && <div className="drawer-backdrop" onClick={() => setDrawerOpen(false)} aria-hidden="true" />}
+    <aside className="sidebar" onClick={event => { if ((event.target as HTMLElement).closest('.conversation > button:first-child, .new-chat')) setDrawerOpen(false); }}>
       <div className="sidebar-head">
         <div className="brand"><Logo size={32} /><div><strong>Sulvana</strong><small>On this device</small></div></div>
         <button type="button" className="new-chat" onClick={startChat} title="New chat" aria-label="New chat"><SquarePen size={17} /></button>
@@ -1041,11 +1189,13 @@ export default function DesktopApp() {
     <main className="workspace" ref={workspace}>
       <header className="topbar">
         <div className="model-info">
+          <button type="button" className="icon-button drawer-toggle" aria-label="Show conversations" title="Conversations" onClick={() => setDrawerOpen(true)}><Menu size={17} /></button>
           <strong>{modelName}</strong>{baseModel && <span className="model-chip" title={`${modelName} is built on ${baseModel} and runs on this computer.`}>{baseModel}</span>}
-          {adapter && <span className="model-chip adapter-chip" title={`A test LoRA adapter is loaded on top of ${baseModel || 'the base model'}: ${adapter}`}>LoRA · {adapter}</span>}
+          {adapter && <span className="model-chip adapter-chip" title={`WKH Labs Khmer fine-tune loaded on top of ${baseModel || 'the base model'} (${adapter.split('+').join(', ')})`}>Khmer-tuned</span>}
+          {preferences.translate && <span className="model-chip online-chip" title="Better Khmer is on: Khmer messages and replies go through Google Translate. Turn it off in Settings to keep everything on this computer."><Globe size={11} /> Google Translate on</span>}
         </div>
         <div className="topbar-right">
-          <span className={'status-dot ' + (ready ? 'ready' : engineDown ? 'bad' : 'busy')} aria-hidden="true" />
+          <span className={'status-dot ' + (ready ? 'ready' : engineDown ? 'bad' : 'busy')} aria-hidden="true" title={statusText} />
           <span className="engine-state" role="status" title={status.detail}>{statusText}</span>
           {speed !== null && <span className="speed" title="Speed of the last reply">{speed.toFixed(1)} tok/s</span>}
           <button type="button" className="icon-button plain" title="Export this chat as Markdown (Ctrl+Shift+E)" aria-label="Export chat" onClick={exportChat}><FileDown size={17} /></button>
@@ -1061,19 +1211,28 @@ export default function DesktopApp() {
           <h1>What are we working on?</h1>
           <p className="empty-khmer" lang="km">សួស្តី! តើខ្ញុំអាចជួយអ្វីបាន?</p>
           <p>Ask anything, attach an image, or type <code>/image</code> to create one.</p>
+          {!preferences.translateAsked && <div className="consent-card" role="region" aria-label="Better Khmer">
+            <strong lang="km">ចង់បានភាសាខ្មែរល្អជាងនេះទេ?</strong>
+            <p>Sulvana's own Khmer has spelling mistakes. With <b>Better Khmer</b>, Sulvana thinks in English and Google Translate writes the Khmer. Your Khmer messages and Sulvana's replies are then sent to Google. You can change this any time in Settings.</p>
+            <div className="consent-actions">
+              <button type="button" onClick={() => setPreferences(current => ({ ...current, translate: false, translateAsked: true }))}>Keep everything on this computer</button>
+              <button type="button" className="approve-button" onClick={() => setPreferences(current => ({ ...current, translate: true, translateAsked: true }))}>Use Better Khmer</button>
+            </div>
+          </div>}
           <div className="suggestions">
             <button type="button" lang="km" onClick={() => { setInput('សូមសរសេរលិខិតមួយ ដើម្បី '); focusComposer(); }}><PencilLine size={17} /><span>សរសេរលិខិត</span><small>Write a letter</small></button>
             <button type="button" lang="km" onClick={() => { setInput('សូមសង្ខេបអត្ថបទនេះ៖\n\n'); focusComposer(); }}><FileText size={17} /><span>សង្ខេបអត្ថបទ</span><small>Summarise a text</small></button>
             <button type="button" lang="km" onClick={() => { setInput('សូមបកប្រែជាភាសាអង់គ្លេស៖ '); focusComposer(); }}><Globe size={17} /><span>បកប្រែ</span><small>Translate</small></button>
-            <button type="button" onClick={() => { setInput('Explain this idea simply: '); focusComposer(); }}><Lightbulb size={17} /><span>Explain an idea</span></button>
-            <button type="button" onClick={() => { setInput('Help me write code for '); focusComposer(); }}><Code size={17} /><span>Write code</span></button>
-            <button type="button" onClick={() => { setInput('/image '); focusComposer(); }}><ImageIcon size={17} /><span>Create an image</span></button>
+            <button type="button" lang="km" onClick={() => { setInput('សូមពន្យល់ឱ្យងាយយល់អំពី '); focusComposer(); }}><Lightbulb size={17} /><span>ពន្យល់គំនិត</span><small>Explain an idea</small></button>
+            <button type="button" lang="km" onClick={() => { setInput('Help me write code for '); focusComposer(); }}><Code size={17} /><span>សរសេរកូដ</span><small>Write code</small></button>
+            <button type="button" lang="km" onClick={() => { setInput('/image '); focusComposer(); }}><ImageIcon size={17} /><span>បង្កើតរូបភាព</span><small>Create an image</small></button>
           </div>
         </div> : <div className="message-column">
           {active.messages.map(message => {
             const failed = message.note === 'error' || message.note === 'empty' || message.note === 'interrupted';
             return <article className={'message ' + message.role + (failed ? ' failed' : '') + (KHMER.test(message.text) ? ' khmer' : '')} key={message.id} aria-busy={message.pending || undefined}>
-              <div className={'message-name' + (message.role === 'user' ? ' visually-hidden' : '')}>{message.role === 'user' ? 'You' : 'Sulvana'}{message.pending ? <span className="thinking">working</span> : message.note === 'stopped' && message.text && message.text !== NOTE_TEXT.stopped ? <span className="thinking">stopped early</span> : null}</div>
+              <div className={'message-name' + (message.role === 'user' ? ' visually-hidden' : '')}>{message.role === 'user' ? 'You' : 'Sulvana'}{message.pending ? <span className="thinking">working</span> : message.note === 'stopped' && message.text && message.text !== NOTE_TEXT.stopped ? <span className="thinking">stopped early</span>
+                : message.translated ? <span className="thinking" title="Sulvana answered in English and Google Translate wrote this Khmer (Settings → Better Khmer)">via Google Translate</span> : null}</div>
               {message.attachment && <div className="attachment-label"><ImagePlus size={14} />{message.attachment}</div>}
               {message.reasoning && <Reasoning text={message.reasoning} live={!!message.pending && !message.text} />}
               {message.note === 'error' ? <div className="message-body message-problem" dir="auto"><TriangleAlert size={15} aria-hidden="true" /><span>{message.text.replace(/^Error: /, '') || NOTE_TEXT.error}</span></div>
@@ -1086,9 +1245,9 @@ export default function DesktopApp() {
                     : message.pending && message.reasoning ? null
                       : <div className={'message-body' + (message.pending ? ' message-activity' : ' message-placeholder')} dir="auto">{message.pending ? message.activity : NOTE_TEXT[message.note || 'empty']}</div>}
               {message.image && <div className="image-result"><img className="generated-image" src={message.image} alt={message.text} onError={event => { event.currentTarget.closest('.image-result')?.classList.add('missing'); }} /><span className="image-missing">This image file is no longer on this computer.</span><button type="button" className="image-save" onClick={() => saveImage(message.image!)}><Download size={14} /> Save image</button></div>}
-              {message.sources && message.sources.length > 0 && <div className="sources"><span className="sources-label"><Globe size={12} />Sources</span>{message.sources.map((source, position) => source.url
+              {message.sources && message.sources.length > 0 && <div className="sources"><span className="sources-label">{message.sources.some(source => source.url) ? <Globe size={12} /> : <FileText size={12} />}Sources</span>{message.sources.map((source, position) => source.url
                 ? <a className="source" key={position} href={source.url} target="_blank" rel="noreferrer noopener" title={source.url}><b>{hostOf(source.url)}</b><span>{source.title}</span></a>
-                : <span className="source source-note" key={position} title={source.file}><b><FileText size={11} />{source.file!.split('/').pop()}</b><span dir="auto">{source.title}</span></span>)}</div>}
+                : <span className="source source-note" key={position} title={source.file}><b><FileText size={11} />{noteName(source.file!)}</b><span dir="auto">{source.title}</span></span>)}</div>}
               {message.role === 'assistant' && !message.pending && <div className="message-actions">
                 {!busy && !message.image && message.id === active.messages[active.messages.length - 1].id && <button type="button" className="copy-message" title="Ask again for a different answer" onClick={() => regenerate(message)}><RefreshCw size={13} />Regenerate</button>}
                 {message.cut && !busy && message.id === active.messages[active.messages.length - 1].id && <button type="button" className="copy-message" onClick={() => void send(KHMER.test(message.text) ? 'សូមបន្តពីកន្លែងដែលអ្នកបានឈប់។' : 'Continue exactly where you left off, without repeating anything.')}><ChevronsDown size={13} />Continue</button>}
@@ -1098,8 +1257,8 @@ export default function DesktopApp() {
                 {message.text && !message.note && !message.plain && !message.image && !message.parts && (message.feedback
                   ? <span className="code-undone">{message.feedback === 'good' ? <ThumbsUp size={13} /> : <PencilLine size={13} />}{message.feedback === 'good' ? 'Saved as good' : 'Correction saved'}</span>
                   : <>
-                    <button type="button" className="copy-message" title="Good answer: save it as a training example" onClick={() => void sendFeedback(message, 'good', message.text)}><ThumbsUp size={13} />Good</button>
-                    <button type="button" className="copy-message" title="Correct this answer and save the fixed version for training" onClick={() => { setImproving({ id: message.id, text: message.text }); setDialog('improve'); }}><PencilLine size={13} />Improve</button>
+                    <button type="button" className="copy-message" title="Good answer: save it on this computer as a training example for Sulvana (not sent anywhere)" onClick={() => void sendFeedback(message, 'good', message.text)}><ThumbsUp size={13} />Good</button>
+                    <button type="button" className="copy-message" title="Correct this answer; the fixed version is saved on this computer for training (not sent anywhere)" onClick={() => { setImproving({ id: message.id, text: message.text }); setDialog('improve'); }}><PencilLine size={13} />Improve</button>
                   </>)}
                 {message.text && message.note !== 'error' && <button type="button" className="copy-message" onClick={() => void copyMessage(message)}>{copiedId === message.id ? <Check size={13} /> : <Copy size={13} />}{copiedId === message.id ? 'Copied' : 'Copy'}</button>}
                 {(failed || (message.note === 'stopped' && (!message.text || message.text === NOTE_TEXT.stopped))) && <button type="button" className="copy-message" onClick={() => retry(message)}><RotateCcw size={13} />Edit and retry</button>}
@@ -1113,8 +1272,19 @@ export default function DesktopApp() {
       <div className="composer-wrap" ref={composerWrap}>
         {engineDown && <div className="engine-banner" role="alert">
           <TriangleAlert size={18} aria-hidden="true" />
-          <div><strong>{status.state === 'offline' ? 'Sulvana lost contact with its local engine' : 'Sulvana’s local engine stopped'}</strong><span>{status.detail || 'The model is not running.'}</span></div>
-          <button type="button" onClick={() => void restartEngine()} disabled={restarting}>{restarting ? 'Restarting…' : 'Restart engine'}</button>
+          <div>
+            <strong>{status.state === 'offline' ? (isRemoteWeb && !remoteConfig.tunnel ? 'Connect to your laptop' : 'Sulvana is offline') : 'Sulvana’s engine stopped'}</strong>
+            <span>
+              {isRemoteWeb && !remoteConfig.tunnel
+                ? 'Enter your laptop tunnel URL and access key in Settings, or open Sulvana with an invite link.'
+                : (status.detail || 'The model is not running.')}
+            </span>
+          </div>
+          {isRemote ? (
+            <button type="button" onClick={() => setDialog('settings')}>Settings</button>
+          ) : (
+            <button type="button" onClick={() => void restartEngine()} disabled={restarting}>{restarting ? 'Restarting…' : 'Restart engine'}</button>
+          )}
         </div>}
         <div className="composer">
           {attached && <div className="attached-preview"><img src={attached.data} alt="" /><span>{attached.name}</span><button type="button" onClick={() => { setAttached(null); focusComposer(); }} title="Remove image" aria-label={`Remove ${attached.name}`}><X size={13} /></button></div>}
@@ -1134,8 +1304,16 @@ export default function DesktopApp() {
               <button type="button" className="chip-button" onClick={selectImage} title="Attach an image" disabled={busy}><Paperclip size={15} /> Attach</button>
               <button type="button" className="chip-button" onClick={() => { setInput(value => value.startsWith('/image') ? value : '/image ' + value); focusComposer(); }} title="Create an image" disabled={busy}><Sparkles size={15} /> Image</button>
               <button type="button" className={'chip-button toggle' + (searchOn ? ' on' : '')} aria-pressed={searchOn} onClick={() => { setSearchOn(value => !value); focusComposer(); }} title="Search the web for this message" disabled={busy}><Globe size={15} /> Search</button>
-              <button type="button" className={'chip-button toggle' + (preferences.code ? ' on' : '')} aria-pressed={preferences.code} onClick={() => { if (!preferences.code && !preferences.codeRoot) { setPreferences(current => ({ ...current, code: true })); void chooseProject(); } else setPreferences(current => ({ ...current, code: !current.code })); focusComposer(); }} title="Coding mode: let Sulvana read and change files in a project folder" disabled={busy}><Code size={15} /> Code</button>
-              {preferences.code && <button type="button" className="chip-button project-chip" onClick={() => void chooseProject()} title={preferences.codeRoot ? `Project: ${preferences.codeRoot} — click to change` : 'Choose a project folder'} disabled={busy}><FolderCode size={15} /> {projectName || 'Choose folder'}</button>}
+              {!isRemote && <button type="button" className={'chip-button toggle' + (preferences.code ? ' on' : '')} aria-pressed={preferences.code} onClick={() => {
+                if (isRemote) {
+                  setNotice({ kind: 'info', text: 'Coding mode is disabled remotely to protect your laptop files.' });
+                  return;
+                }
+                if (!preferences.code && !preferences.codeRoot) { setPreferences(current => ({ ...current, code: true })); void chooseProject(); }
+                else setPreferences(current => ({ ...current, code: !current.code }));
+                focusComposer();
+              }} title={isRemote ? 'Coding mode is disabled remotely' : 'Coding mode: let Sulvana read and change files in a project folder'} disabled={busy}><Code size={15} /> Code</button>}
+              {preferences.code && !isRemote && <button type="button" className="chip-button project-chip" onClick={() => void chooseProject()} title={preferences.codeRoot ? `Project: ${preferences.codeRoot} — click to change` : 'Choose a project folder'} disabled={busy}><FolderCode size={15} /> {projectName || 'Choose folder'}</button>}
               <button type="button" className={'chip-button toggle' + (preferences.reasoning ? ' on' : '')} aria-pressed={preferences.reasoning} onClick={() => { setPreferences(current => ({ ...current, reasoning: !current.reasoning })); focusComposer(); }} title="Think step by step before answering" disabled={busy}><Brain size={15} /> Reason</button>
             </div>
             {busy
@@ -1168,8 +1346,20 @@ export default function DesktopApp() {
       </div>
       <p className="form-note">{customLanguage ? 'Letters only. Leave it empty to match your message.' : 'Automatic replies in Khmer, or in the language you write in.'}</p>
       <div className="form-group">
+        <div className="form-row">
+          <span id="setting-translate">Better Khmer</span>
+          <div className="segmented" role="radiogroup" aria-labelledby="setting-translate">
+            {([true, false] as const).map(on => <button type="button" key={String(on)} role="radio" aria-checked={preferences.translate === on}
+              onClick={() => setPreferences(current => ({ ...current, translate: on, translateAsked: true }))}>{on ? 'On' : 'Off'}</button>)}
+          </div>
+        </div>
+      </div>
+      <p className="form-note">{preferences.translate
+        ? 'Sulvana thinks in English and Google Translate writes the Khmer, which is much more accurate. Your Khmer messages and Sulvana\'s replies are sent to Google. When Google cannot be reached, Sulvana writes the Khmer itself.'
+        : 'Everything stays on this computer. Sulvana writes Khmer itself, with more mistakes.'}</p>
+      <div className="form-group">
         <div className="form-row stacked">
-          <label htmlFor="setting-creativity">Creativity <span>{preferences.temperature.toFixed(1)}</span></label>
+          <label htmlFor="setting-creativity">Creativity <span>{preferences.temperature <= 0.5 ? 'Precise' : preferences.temperature <= 0.9 ? 'Balanced' : 'Creative'} · {preferences.temperature.toFixed(1)}</span></label>
           <input id="setting-creativity" type="range" min="0.1" max="1.5" step="0.1" value={preferences.temperature} style={{ '--range-fill': rangeFill } as CSSProperties}
             onChange={event => setPreferences(current => ({ ...current, temperature: Number(event.target.value) }))} />
         </div>
@@ -1179,7 +1369,7 @@ export default function DesktopApp() {
         <div className="form-row">
           <label htmlFor="setting-length">Maximum reply length</label>
           <select id="setting-length" value={preferences.maxTokens} onChange={event => setPreferences(current => ({ ...current, maxTokens: Number(event.target.value) }))}>
-            {TOKEN_LIMITS.map(value => <option key={value} value={value}>{value} tokens</option>)}
+            {TOKEN_LIMITS.map(value => <option key={value} value={value}>{LENGTH_NAMES[value]}</option>)}
           </select>
         </div>
         <div className="form-row">
@@ -1190,14 +1380,38 @@ export default function DesktopApp() {
           </select>
         </div>
         {models && <p className="form-note model-note">{models.models.find(m => m.id === (models.current || 'sulvana-2.0'))?.detail}</p>}
-        <div className="form-row stacked">
+        {!isRemote && <div className="form-row stacked">
           <label htmlFor="setting-project">Coding project folder</label>
           <div className="project-field">
             <input id="setting-project" type="text" spellCheck={false} placeholder="/home/you/projects/my-app" value={preferences.codeRoot}
               onChange={event => setPreferences(current => ({ ...current, codeRoot: event.target.value.slice(0, 1000) }))} />
             {window.sulvanaElectron && <button type="button" onClick={() => void chooseProject()}>Choose…</button>}
           </div>
+        </div>}
+      </div>
+      <details className="form-details" open={isRemote || undefined}>
+        <summary>Share with a friend</summary>
+      <div className="form-group">
+        <div className="form-row stacked">
+          <label htmlFor="setting-tunnel">Remote Laptop Tunnel <span>{remoteConfig.tunnel ? 'Connected' : 'Local'}</span></label>
+          <div className="project-field">
+            <input id="setting-tunnel" type="text" spellCheck={false} placeholder="https://xxxx.trycloudflare.com" value={tunnelInput}
+              onChange={event => setTunnelInput(event.target.value)} />
+          </div>
         </div>
+        <div className="form-row stacked">
+          <label htmlFor="setting-key">Access Key</label>
+          <div className="project-field">
+            <input id="setting-key" type="text" spellCheck={false} placeholder="Passphrase key" value={keyInput}
+              onChange={event => setKeyInput(event.target.value)} />
+            <button type="button" onClick={() => saveRemoteSettings(tunnelInput, keyInput)}>Save</button>
+            <button type="button" onClick={copyInviteLink} title="Copy invite link to share with your friend">{copiedLink ? 'Copied!' : 'Copy Link'}</button>
+          </div>
+        </div>
+      </div>
+        <p className="form-note">Connect to Sulvana on your laptop via Cloudflare tunnel. Run <code>./share.sh</code> on your laptop, or click Copy Link to send your friend an instant invite.</p>
+      </details>
+      <div className="form-group">
         <div className="form-row">
           <span id="setting-text-size">Text size</span>
           <div className="segmented" role="radiogroup" aria-labelledby="setting-text-size">
@@ -1218,7 +1432,7 @@ export default function DesktopApp() {
         <div><strong>{modelName} by WKH Labs</strong><span>Wisdom · Khmer · Heritage{baseModel ? ` · built on ${baseModel}` : ''}</span></div>
       </div>
       <div className="modal-actions spread">
-        <button type="button" onClick={() => { setPreferences(current => ({ ...DEFAULT_PREFERENCES, theme: current.theme })); setCustomLanguage(false); }}>Reset to Defaults</button>
+        <button type="button" onClick={() => { setPreferences(current => ({ ...DEFAULT_PREFERENCES, theme: current.theme, translate: current.translate, translateAsked: current.translateAsked })); setCustomLanguage(false); }}>Reset to Defaults</button>
         <button type="button" className="approve-button" onClick={() => setDialog(null)}>Done</button>
       </div>
     </Modal>}
@@ -1226,7 +1440,8 @@ export default function DesktopApp() {
       <p>Sulvana can search local Markdown guides, search the public web when you ask, and run a small set of read only checks on this computer.</p>
       <div className="form-group">
         <div className="form-row"><span>Local documentation</span><em>Available</em></div>
-        <div className="form-row"><span>Public web search</span><em>When asked</em></div>
+        <div className="form-row"><span>Public web search</span><em className="online">Online · when asked</em></div>
+        <div className="form-row"><span>Online Khmer translator (Google)</span><em className={preferences.translate ? 'online' : ''}>{preferences.translate ? 'Online · on' : 'Off'}</em></div>
         <div className="form-row"><span>Read only terminal checks</span><em>Limited</em></div>
         <div className="form-row"><span>Coding mode (one project folder)</span><em>Asks first</em></div>
       </div>

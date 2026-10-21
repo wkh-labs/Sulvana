@@ -10,6 +10,7 @@ import mimetypes
 import os
 import time
 import re
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -28,14 +29,36 @@ IMAGE_DIR = ROOT / "runs/z-image"
 PROFILE_FILE = ROOT / ".runtime" / "sulvana-model.json"
 FEEDBACK_FILE = ROOT / "datasets" / "feedback" / "corrections.jsonl"
 KHMER_ADAPTER = ROOT / "runs/finetune/mimo-khmer-01/sulvana-khmer-mimo-01.gguf"
-KHMER_ADAPTER_V2 = ROOT / "runs/finetune/mimo-khmer-v2/mimo-khmer-v2.gguf"
+KHMER_ADAPTER_V2 = Path(os.environ.get("SULVANA_KHMER_ADAPTER") or ROOT / "runs/finetune/mimo-khmer-v2/mimo-khmer-v2.gguf")
+REMOTE_KEY_FILE = ROOT / ".runtime" / "sulvana-remote.json"
+
+
+def get_remote_key() -> str:
+    env_key = os.environ.get("SULVANA_REMOTE_KEY", "").strip()
+    if env_key:
+        return env_key
+    try:
+        if REMOTE_KEY_FILE.is_file():
+            key = json.loads(REMOTE_KEY_FILE.read_text()).get("key", "").strip()
+            if key:
+                return key
+    except Exception:
+        pass
+    new_key = secrets.token_urlsafe(16)
+    try:
+        REMOTE_KEY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        REMOTE_KEY_FILE.write_text(json.dumps({"key": new_key, "created": time.strftime("%Y-%m-%dT%H:%M:%S%z")}) + "\n")
+    except OSError:
+        pass
+    return new_key
 # The models Sulvana can run, chosen in Settings. Each is a set of environment variables for the engine.
 PROFILES = {
     "sulvana-2.0": {"label": "Sulvana 2.0", "detail": "MiMo-V2.6 9B · fast, Khmer and coding",
                     "file": ROOT / "models/MiMo-V2.6-Distill-Qwen-9B/MiMo-V2.6-Distill-Qwen-9B-Q4_K_M.gguf",
                     "env": {"SULVANA_BASE": "mimo"}},
     # Two WKH Labs adapters, routed per message: v2 (Gemini-written Khmer) when the reply is Khmer,
-    # v1 for other languages. Measured 82.3% / 82.5% on the two Khmer benchmarks (v1 alone: 81.6 / 81.3).
+    # v1 for other languages. Measured 82.3% / 82.5% on the two Khmer benchmarks (v1 alone: 81.6 / 81.3);
+    # v3 (2026-10-16) measured no better than v2.
     "sulvana-2.0-khmer": {"label": "Sulvana 2.0 + Khmer adapters", "detail": "MiMo with the WKH Labs Khmer fine-tunes (v2 for Khmer, v1 for English)",
                           "file": KHMER_ADAPTER_V2,
                           "env": {"SULVANA_BASE": "mimo", "SULVANA_LORA_ADAPTER": f"{KHMER_ADAPTER},{KHMER_ADAPTER_V2}",
@@ -48,21 +71,33 @@ PROFILES = {
 DEFAULT_PROFILE = "sulvana-2.0-khmer"   # the best-measured model; Settings can switch to any other
 
 
+def profile_available(name: str) -> bool:
+    if name not in PROFILES:
+        return False
+    info = PROFILES[name]
+    if name == "sulvana-2.0-khmer":
+        return (PROFILES["sulvana-2.0"]["file"].is_file() and
+                KHMER_ADAPTER.is_file() and KHMER_ADAPTER_V2.is_file())
+    if name == "sulvana-1.0-code":
+        return info["file"].is_file() and info["file"].stat().st_size > 16_000_000_000
+    return info["file"].is_file() and info["file"].stat().st_size >= 4_000_000_000
+
+
 def saved_profile() -> str | None:
     try:
         name = json.loads(PROFILE_FILE.read_text())["profile"]
     except (OSError, ValueError, KeyError):
         name = DEFAULT_PROFILE
-    if name in PROFILES and PROFILES[name]["file"].is_file():
+    if profile_available(name):
         return name
-    return "sulvana-2.0" if PROFILES["sulvana-2.0"]["file"].is_file() else None
+    return "sulvana-2.0" if profile_available("sulvana-2.0") else None
 
 
 def profile_env(name: str | None) -> dict[str, str]:
     """The engine's environment: the launcher's own variables, overridden by the model chosen in Settings."""
     env = dict(os.environ)
-    if name:
-        for key in ("SULVANA_BASE", "SULVANA_LORA_ADAPTER", "SULVANA_LORA_SCALE"):
+    if name and name in PROFILES:
+        for key in ("SULVANA_BASE", "SULVANA_LORA_ADAPTER", "SULVANA_LORA_SCALE", "SULVANA_LORA_KHMER", "SULVANA_LORA_OTHER"):
             env.pop(key, None)
         env.update(PROFILES[name]["env"])
     return env
@@ -135,17 +170,59 @@ def main() -> None:
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.0"
 
-        def log_message(self, *_args) -> None: pass
+        def log_message(self, format, *args) -> None:
+            try:
+                code = str(args[1]) if len(args) > 1 else ""
+                sys.stderr.write(f"[{time.strftime('%H:%M:%S')}] {self.command} {self.path.split('?')[0]} -> {code}\n")
+                sys.stderr.flush()
+            except Exception:
+                pass
 
-        def _send(self, code: int, payload: bytes, content_type: str) -> None:
-            self.send_response(code); self.send_header("Content-Type", content_type); self.send_header("Content-Length", str(len(payload))); self.send_header("Cache-Control", "no-store"); self.end_headers(); self.wfile.write(payload)
-
-        def _same_app(self) -> bool:
+        def _is_local(self) -> bool:
+            # Only Sulvana's own page on this computer. Pages from other local ports (another dev server)
+            # or any website must use the access key like a remote friend.
             host = self.headers.get("Host", "")
             origin = self.headers.get("Origin")
-            allowed = {"http://127.0.0.1:8766", "http://localhost:8766"}
-            if host not in {"127.0.0.1:8766", "localhost:8766"} or (origin and origin not in allowed):
-                self._send(403, b"Local app requests only", "text/plain")
+            app = {"127.0.0.1:8766", "localhost:8766"}
+            return host in app and (not origin or origin in {f"http://{name}" for name in app})
+
+        def _cors_headers(self) -> None:
+            origin = self.headers.get("Origin")
+            self.send_header("Access-Control-Allow-Origin", origin or "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "*")
+            self.send_header("Access-Control-Max-Age", "86400")
+
+        def _send(self, code: int, payload: bytes, content_type: str) -> None:
+            self.send_response(code)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Cache-Control", "no-store")
+            self._cors_headers()
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def do_OPTIONS(self) -> None:
+            self.send_response(204)
+            self.send_header("Content-Length", "0")
+            self._cors_headers()
+            self.end_headers()
+
+        def _check_access(self) -> bool:
+            if self._is_local():
+                return True
+            provided = self.headers.get("X-Sulvana-Key", "").strip()
+            if not provided:
+                auth = self.headers.get("Authorization", "").strip()
+                if auth.lower().startswith("bearer "):
+                    provided = auth[7:].strip()
+            if not provided:
+                query_key = parse_qs(urlsplit(self.path).query).get("key", [""])[0].strip()
+                if query_key:
+                    provided = query_key
+            expected = get_remote_key()
+            if not provided or not secrets.compare_digest(provided, expected):
+                self._send(401, b'{"state":"offline","detail":"Invalid or missing Sulvana access key"}', "application/json")
                 return False
             return True
 
@@ -162,7 +239,7 @@ def main() -> None:
                 except (ValueError, base64.binascii.Error):
                     detail = "Local engine returned an invalid status"
                 approval = None
-                if raw[0] == "generating":
+                if raw[0] == "generating" and self._is_local():
                     try:
                         pending = engine.request("GET", "/pending-approval")
                         if pending.status == 200:
@@ -174,15 +251,16 @@ def main() -> None:
                 self._send(502, b'{"state":"error","detail":"Engine unavailable"}', "application/json")
 
         def do_GET(self) -> None:
-            if not self._same_app(): return
-            if self.path == "/api/status": self._status(); return
-            if self.path == "/api/models":
+            req_path = urlsplit(self.path).path.rstrip("/")
+            if req_path.startswith("/api/") and not self._check_access(): return
+            if req_path == "/api/status": self._status(); return
+            if req_path == "/api/models":
                 current = engine.profile or saved_profile()
                 items = [{"id": name, "label": info["label"], "detail": info["detail"],
-                          "available": info["file"].is_file() and (name != "sulvana-1.0-code" or info["file"].stat().st_size > 16_000_000_000)}
+                          "available": profile_available(name)}
                          for name, info in PROFILES.items()]
                 self._send(200, json.dumps({"current": current, "models": items}).encode(), "application/json"); return
-            if self.path.startswith("/api/image?"):
+            if req_path.startswith("/api/image"):
                 name = parse_qs(urlsplit(self.path).query).get("name", [""])[0]
                 if not re.fullmatch(r"[A-Za-z0-9_.-]+\.png", name):
                     self._send(400, b"Invalid image name", "text/plain"); return
@@ -190,16 +268,19 @@ def main() -> None:
                 if not image.is_relative_to(IMAGE_DIR.resolve()) or not image.is_file():
                     self._send(404, b"Image not found", "text/plain"); return
                 self._send(200, image.read_bytes(), "image/png"); return
-            requested = self.path.split("?", 1)[0].lstrip("/") or "index.html"
+            requested = req_path.lstrip("/") or "index.html"
             file = (DIST / requested).resolve()
             if not file.is_relative_to(DIST) or not file.is_file(): file = DIST / "index.html"
             self._send(200, file.read_bytes(), mimetypes.guess_type(file.name)[0] or "application/octet-stream")
 
         def do_POST(self) -> None:
-            if not self._same_app(): return
-            if self.path not in {"/api/chat", "/api/stop", "/api/clear", "/api/approval", "/api/restart", "/api/code/undo", "/api/model", "/api/feedback"}:
+            if not self._check_access(): return
+            req_path = urlsplit(self.path).path.rstrip("/")
+            if not self._is_local() and req_path in {"/api/approval", "/api/code/undo"}:
+                self._send(403, b"Forbidden: Coding mode and system approvals are only available locally on the laptop", "text/plain"); return
+            if req_path not in {"/api/chat", "/api/stop", "/api/clear", "/api/approval", "/api/restart", "/api/code/undo", "/api/model", "/api/feedback"}:
                 self._send(404, b"Not found", "text/plain"); return
-            if self.path == "/api/code/undo":
+            if req_path == "/api/code/undo":
                 try:
                     length = int(self.headers.get("Content-Length", "0"))
                     if not 1 <= length <= 512: raise ValueError("Invalid undo request")
@@ -210,18 +291,18 @@ def main() -> None:
                 except (ValueError, TypeError, AttributeError, OSError) as problem:
                     self._send(400, f"Could not undo: {problem}".encode(), "text/plain")
                 return
-            if self.path == "/api/model":
+            if req_path == "/api/model":
                 try:
                     length = int(self.headers.get("Content-Length", "0"))
                     if not 1 <= length <= 256: raise ValueError("Invalid request")
                     name = json.loads(self.rfile.read(length)).get("profile")
                     if name not in PROFILES: raise ValueError("Unknown model")
-                    if not PROFILES[name]["file"].is_file(): raise ValueError("That model is not downloaded yet")
+                    if not profile_available(name): raise ValueError("That model or its adapter is not downloaded yet")
                 except (ValueError, TypeError, AttributeError, json.JSONDecodeError) as problem:
                     self._send(400, str(problem).encode(), "text/plain"); return
                 code = switch_engine(name)
                 self._send(code, b"" if code == 204 else b"The model could not be started", "text/plain"); return
-            if self.path == "/api/feedback":
+            if req_path == "/api/feedback":
                 # A user-approved or user-corrected answer, saved as a training example (datasets/feedback/).
                 try:
                     length = int(self.headers.get("Content-Length", "0"))
@@ -244,22 +325,22 @@ def main() -> None:
                 except (ValueError, TypeError, AttributeError, json.JSONDecodeError, OSError) as problem:
                     self._send(400, str(problem).encode(), "text/plain")
                 return
-            if self.path == "/api/restart":
+            if req_path == "/api/restart":
                 code = restart_engine()
                 self._send(code, b"" if code == 204 else b"The engine is busy or could not be restarted", "text/plain"); return
-            if self.path == "/api/stop":
+            if req_path == "/api/stop":
                 try:
                     response = engine.request("POST", "/stop"); self._send(response.status, response.read(), "text/plain")
                 except (OSError, http.client.HTTPException):
                     self._send(502, b"Local engine is unavailable", "text/plain")
                 return
-            if self.path == "/api/clear":
+            if req_path == "/api/clear":
                 try:
                     response = engine.request("POST", "/clear"); self._send(response.status, response.read(), "text/plain")
                 except (OSError, http.client.HTTPException):
                     self._send(502, b"Local engine is unavailable", "text/plain")
                 return
-            if self.path == "/api/approval":
+            if req_path == "/api/approval":
                 try:
                     length = int(self.headers.get("Content-Length", "0"))
                     if not 1 <= length <= 2048: raise ValueError("Invalid approval request")
@@ -298,10 +379,14 @@ def main() -> None:
                 path, body, content_type = "/chat", json.dumps({"prompt": prompt, "history": history}).encode(), "application/json"
                 headers = {"Content-Type": content_type, "X-Max-Tokens": str(max_tokens), "X-Temperature": str(temperature), "X-Language": base64.b64encode(language.encode()).decode(),
                            "X-Search": "1" if request.get("search") is True else "0",
-                           "X-Reasoning": "1" if request.get("reasoning") is True else "0"}
-                code = request.get("code")
-                if isinstance(code, dict) and isinstance(code.get("root"), str) and 0 < len(code["root"]) <= 1000:
-                    headers["X-Code-Root"] = base64.b64encode(code["root"].encode()).decode()
+                           "X-Reasoning": "1" if request.get("reasoning") is True else "0",
+                           "X-Translate": "1" if request.get("translate") is True else "0",
+                           # A friend on the shared link may chat, but not inspect this computer.
+                           "X-Remote": "0" if self._is_local() else "1"}
+                if self._is_local():
+                    code = request.get("code")
+                    if isinstance(code, dict) and isinstance(code.get("root"), str) and 0 < len(code["root"]) <= 1000:
+                        headers["X-Code-Root"] = base64.b64encode(code["root"].encode()).decode()
                 if image_data:
                     match = re.fullmatch(r"data:image/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)", str(image_data))
                     if not match: raise ValueError("Unsupported image format")
@@ -316,7 +401,11 @@ def main() -> None:
                 response = engine.request("POST", path, body, headers)
                 if response.status != 200:
                     self._send(response.status, response.read(), "text/plain"); return
-                self.send_response(200); self.send_header("Content-Type", "text/plain; charset=ascii"); self.send_header("Cache-Control", "no-store"); self.end_headers()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain; charset=ascii")
+                self.send_header("Cache-Control", "no-store")
+                self._cors_headers()
+                self.end_headers()
                 streaming = True
                 while line := response.readline():
                     self.wfile.write(line)

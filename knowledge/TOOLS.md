@@ -18,6 +18,12 @@ This tool only runs when the user explicitly asks for it, in one of three ways: 
 
 The results Sulvana used are listed under its answer as **Sources**. Clicking a source opens that page in the user's own web browser; Sulvana itself never opens links.
 
+## Better Khmer (online translator, opt-in)
+
+Off until the user agrees on the home screen or in Settings. When on, a Khmer message is translated to English with Google Translate's public web endpoint, Sulvana answers in English, and the answer is translated back to Khmer a paragraph at a time (code blocks are left as they are). The reply is marked "via Google Translate". The Khmer text therefore leaves the computer. If Google cannot be reached or refuses requests (HTTP 429), Sulvana pauses the translator for 10 minutes and writes the Khmer itself. `/translate <text>` translates one piece of text. `SULVANA_TRANSLATE=0` disables the translator for everyone.
+
+A friend using the shared link (share.sh) can chat, but terminal checks and coding mode are only available on the computer running Sulvana.
+
 ## Read-only terminal
 
 `terminal.read` runs a small set of inspection commands in the Sulvana workspace. Allowed commands are:

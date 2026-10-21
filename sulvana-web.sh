@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
-APP=/home/tanchjim/Documents/Codex/ai-workspace
+APP="${SULVANA_APP:-/home/tanchjim/Documents/Codex/ai-workspace}"
 cd "$APP"
-exec python -u "$APP/sulvana_web.py"
+PYTHON="$APP/.venv/bin/python"
+if [[ ! -x "$PYTHON" ]]; then
+  PYTHON="$(command -v python3 || command -v python)"
+fi
+exec "$PYTHON" -u "$APP/sulvana_web.py"

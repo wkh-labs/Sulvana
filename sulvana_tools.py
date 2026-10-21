@@ -6,7 +6,9 @@ import json
 import re
 import shlex
 import subprocess
+import time
 import urllib.parse
+import urllib.error
 import urllib.request
 from html.parser import HTMLParser
 from pathlib import Path
@@ -111,7 +113,9 @@ def note_passages(query: str, budget: int = NOTES_BUDGET, limit: int = 5) -> lis
             shared = wanted & have
             # Fraction of the message's terms the section covers, so short notes are not drowned out.
             score = len(shared) / len(wanted)
-            if len(shared) >= 2 and score >= 0.15:
+            single_match = len(wanted) == 1 and len(shared) == 1 and len(next(iter(wanted))) >= 4
+            # Two shared words out of ten ("write", "short") is a coincidence, not a match.
+            if single_match or (len(shared) >= 2 and score >= 0.3) or (len(shared) >= 3 and score >= 0.15):
                 scored.append((score, str(path.relative_to(ROOT)), title, body))
     scored.sort(key=lambda item: item[0], reverse=True)
     chosen: list[dict[str, str]] = []
@@ -281,6 +285,82 @@ def web_search(query: str, sources: list | None = None) -> str:
     if sources is not None:
         sources.extend({"title": item["title"], "url": item["url"]} for item in results)
     return "\n".join(f"- {item['title']}\n  {item['url']}\n  {item['snippet']}" for item in results) if results else problem
+
+
+# Khmer translation. Sulvana's own Khmer is weak, so when the online translator is enabled a Khmer message is
+# translated to English, answered in English (the model's strongest language) and the answer translated back.
+# This uses Google Translate's public web endpoint (the one translate.google.com uses; no key, unofficial,
+# may be rate-limited or change) and sends the text to Google, so it is a user setting the app discloses.
+TRANSLATE_URL = "https://translate.googleapis.com/translate_a/single"
+_CODE = re.compile(r"```[\s\S]*?```|`[^`\n]+`")
+_translations: dict[tuple[str, str], str] = {}
+_translator_paused_until = 0.0   # after "too many requests", leave the service alone for a while
+
+
+def translate(text: str, target: str, source: str = "auto") -> str | None:
+    """Translate text with code blocks and inline code left untouched. None when the service cannot be reached."""
+    clean = text.strip()
+    if not clean:
+        return text
+    key = (clean, target)
+    if key in _translations:
+        return _translations[key]
+    kept: list[str] = []
+
+    def hold(match: re.Match) -> str:
+        kept.append(match.group(0))
+        return f"⟦{len(kept) - 1}⟧"
+
+    protected = _CODE.sub(hold, clean)
+    if not re.search(r"[^\W\d_]", re.sub(r"⟦\d+⟧", "", protected)):
+        return text                                     # only code, numbers or punctuation: nothing to translate
+    global _translator_paused_until
+    if time.time() < _translator_paused_until:
+        return None
+    query = urllib.parse.urlencode({"client": "gtx", "sl": source, "tl": target, "dt": "t"})
+    body = urllib.parse.urlencode({"q": protected}).encode()
+    for attempt in range(2):
+        try:
+            request = urllib.request.Request(f"{TRANSLATE_URL}?{query}", data=body,
+                                             headers={"User-Agent": "Mozilla/5.0", "Content-Type": "application/x-www-form-urlencoded"})
+            with urllib.request.urlopen(request, timeout=12) as response:
+                data = json.loads(response.read().decode("utf-8", errors="replace"))
+            result = "".join(part[0] for part in data[0] if part and part[0])
+            break
+        except urllib.error.HTTPError as error:
+            result = ""
+            if error.code == 429:
+                # Retrying makes the block last longer; Sulvana answers on its own for the next 10 minutes.
+                _translator_paused_until = time.time() + 600
+                break
+        except (OSError, ValueError, IndexError, TypeError):
+            result = ""
+    if not result:
+        return None
+    for index, block in enumerate(kept):
+        result = re.sub(rf"⟦\s*{index}\s*⟧", lambda _m, block=block: block, result)
+    # The translator pads markdown markers with spaces ("** word **", "1 ."); put them back together.
+    result = re.sub(r"\*\*\s*([^*\n]+?)\s*\*\*", r"**\1**", result)
+    result = re.sub(r"^(\s*)(\d+)\s+\.\s", r"\1\2. ", result, flags=re.M)
+    if len(_translations) > 2000:
+        _translations.clear()
+    _translations[key] = result
+    return result
+
+
+def translate_markdown(text: str, target: str) -> str | None:
+    """Translate a reply paragraph by paragraph so that fenced code blocks pass through unchanged."""
+    out: list[str] = []
+    for part in re.split(r"(```[\s\S]*?```)", text):
+        if part.startswith("```") or not part.strip():
+            out.append(part)
+            continue
+        translated = translate(part, target)
+        if translated is None:
+            return None
+        lead, trail = part[:len(part) - len(part.lstrip())], part[len(part.rstrip()):]
+        out.append(lead + translated + trail)
+    return "".join(out)
 
 
 def run_tool(name: str, arguments: dict, *, allow_web: bool = False,

@@ -62,3 +62,12 @@ Cambodia has the capital Phnom Penh (រាជធានីភ្នំពេញ)
 
 - Fish amok (អាម៉ុកត្រី) is steamed fish in a thick curry of kroeung (គ្រឿង: lemongrass, galangal, kaffir lime, turmeric, garlic, shallot), coconut milk and egg, usually with noni leaves (ស្លឹកញរ), cooked in banana-leaf cups.
 - Kuy teav (គុយទាវ) is a rice-noodle soup eaten for breakfast; num banh chok (នំបញ្ចុក) is rice noodles with a fish-based green curry sauce.
+
+# Education and prominent schools · ការអប់រំ និងសាលារៀនល្បីៗ
+
+- Preah Sisowath High School (វិទ្យាល័យព្រះស៊ីសុវត្ថិ) is one of the oldest and most prestigious secondary schools in Cambodia, originally founded in 1873 as Collège de Sisowath and renamed Lycée Sisowath in 1933, located on Norodom Boulevard in Phnom Penh.
+- New Generation School (សាលារៀនជំនាន់ថ្មី - NGS) was established in 2015 as an educational reform initiative by the Ministry of Education, Youth and Sport (MoEYS / ក្រសួងអប់រំ យុវជន និងកីឡា) in partnership with KAPE (Kampuchean Action to Promote Education). It was first launched at Preah Sisowath High School (វិទ្យាល័យព្រះស៊ីសុវត្ថិ) in 2015 to promote STEM education, high-standard teaching, research, and autonomy.
+- សាលារៀនជំនាន់ថ្មី (New Generation School - NGS) នៃវិទ្យាល័យព្រះស៊ីសុវត្ថិ ត្រូវបានចាប់ផ្ដើមបង្កើតឡើងនៅក្នុងឆ្នាំ ២០១៥ ដោយក្រសួងអប់រំ យុវជន និងកីឡា ដោយសហការជាមួយអង្គការ KAPE។ កម្មវិធីនេះផ្ដោតលើការអប់រំ STEM (វិទ្យាសាស្ត្រ បច្ចេកវិទ្យា វិស្វកម្ម គណិតវិទ្យា) ការស្រាវជ្រាវ និងការបង្រៀនតាមបែបទំនើប។ ក្រោយមកកម្មវិធីនេះបានពង្រីកទៅកាន់វិទ្យាល័យព្រែកលៀប និងវិទ្យាល័យហ៊ុនសែនកំពង់ចាម។
+- Royal University of Phnom Penh (សាកលវិទ្យាល័យភូមិន្ទភ្នំពេញ - RUPP) is Cambodia's oldest and largest public university, founded in 1960.
+- Institute of Technology of Cambodia (វិទ្យាស្ថានបច្ចេកវិទ្យាកម្ពុជា - ITC / តិចណូ) is Cambodia's premier engineering and technology higher education institution, founded in 1964.
+

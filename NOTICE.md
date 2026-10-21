@@ -15,6 +15,12 @@ Sulvana is a non-commercial project by **WKH Labs** (Wisdom · Khmer · Heritage
 The licence texts of the base models are distributed with their weights on Hugging Face and must accompany any copy of
 the models or of models derived from them.
 
+## Online services
+
+- **Better Khmer** (off unless the user turns it on) sends Khmer messages and replies to Google Translate's public web
+  endpoint (translate.googleapis.com). This is not an official, documented API for apps; Google may limit or change it.
+- **Web search** (only when asked) sends the search query to DuckDuckGo.
+
 ## Training data for the Khmer fine-tune
 
 - [ALT, the Asian Language Treebank](https://huggingface.co/datasets/mutiyama/alt) (CC BY 4.0): English–Khmer sentence pairs.
