@@ -49,6 +49,25 @@ Sulvana's Khmer tools use this list so that school and technical words are under
 - ជំងឺរាគ = diarrhoea
 - ខ្វះជាតិទឹក = dehydration
 
+- បរាសិត = parasite
+- ពពួកសត្វល្អិត = insects
+- ផ្សិត = fungus
+- ឫស = root (plant)
+- ដើម = stem, trunk
+- ស្លឹក = leaf
+- ផ្កា = flower
+- គ្រាប់ពូជ = seed
+- ថនិកសត្វ = mammal
+- សត្វល្មូន = reptile
+- សត្វស្លាប = bird
+- ត្រី = fish
+- ដង្កូវ = worm, larva
+- ការបន្តពូជ = reproduction
+- តំណពូជ = heredity
+- អ័រម៉ូន = hormone
+- ប្រព័ន្ធភាពស៊ាំ = immune system
+- ការឆ្លង = infection
+
 ## Chemistry and physics · គីមីវិទ្យា និងរូបវិទ្យា
 
 - អាតូម = atom

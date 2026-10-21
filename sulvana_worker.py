@@ -134,7 +134,8 @@ SYSTEM_TRANSLATED = (
     "in Latin letters: write អង្គរវត្ត, not Angkor Wat; ខេត្តសៀមរាប, not Siem Reap; ព្រះបាទសូរ្យវរ្ម័នទី២, not Suryavarman II.\n"
     "- A translation of the user's message may be wrong. When it disagrees with the Khmer original, trust the Khmer, "
     "and never mention the translation to the user.\n"
-    "- For maths, show short working and end with the answer on its own line.\n\n"
+    "- For maths, show short working and end with the answer on its own line.\n"
+    "- If you do not know a word, name or topic, say so and ask; never make up definitions, varieties or facts.\n\n"
     + _PERSONA
 )
 KHMER_WRITER = (
@@ -1109,6 +1110,13 @@ class ModelWorker:
                 rough = self._mt(text, "English", glossary_terms(text)) or self._translate_question(text)
             translated = rough is not None
             english_text = rough or text
+            if translated and english_text != text:
+                # A machine translation turns a Khmer word it does not know into a sound-alike ("បរជីព" became
+                # "Borjip"), and the model then invents a whole answer about it.
+                english_text += ("\n\n(This question was machine-translated from the user's Khmer: «" + text + "». If a word "
+                                 "in it looks like a sound-alike spelling rather than a real English word or a name you know, "
+                                 "you do not know that Khmer word: say so plainly, quote the Khmer word, and ask the user to "
+                                 "explain it or check the spelling. Never invent a meaning, types or facts for it.)")
             terms = glossary_terms(text) if translated else []
             if terms:
                 # Keep the user's Khmer term next to the English one so the answer uses the right Khmer word.
