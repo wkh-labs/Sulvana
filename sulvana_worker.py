@@ -161,6 +161,24 @@ SEARCH_CHECK = (
 )
 # Questions that are about recent or changing facts are always looked up: a 9B model is confidently wrong about them
 # ("who won the 2024 Nobel Peace Prize" got two different wrong answers without a search).
+# Khmer copied out of a PDF made with an old (non-Unicode) Khmer font comes out with its characters in the wrong order:
+# "តើប្រព័ន្ធដឹកនាំ…" becomes "រត្ីព្បរ័នធដំែឹកនាំ…". A subscript sign (្) followed by a vowel, or a vowel sign at the
+# start of a word, never happens in real Khmer.
+GARBLED_KHMER = re.compile(r"\u17D2[\u17B6-\u17C5\u17C6-\u17D1\u17D3\u17DD]|(?:^|\s)[\u17B6-\u17C5]"
+                           r"|[\u17C6-\u17C8\u17CB-\u17D1][\u17B6-\u17C5]|[\u17B6-\u17C5]{2}")   # ៉ ៊ (17C9, 17CA) do come before vowels
+
+
+def looks_garbled(text: str) -> bool:
+    khmer = len(KHMER.findall(text))
+    return khmer >= 8 and len(GARBLED_KHMER.findall(text)) >= max(1, khmer // 80)
+
+
+GARBLED_REPLY = (
+    "សារនេះហាក់ដូចជាអក្សរខ្មែរខូច ដែលច្រើនកើតឡើងពេលចម្លងអត្ថបទពី PDF ដែលប្រើពុម្ពអក្សរខ្មែរចាស់។ "
+    "សូមវាយសំណួរឡើងវិញ ឬចម្លងពីឯកសារដែលប្រើ Unicode (ដូចជា Word ឬគេហទំព័រ) រួចផ្ញើម្ដងទៀត។\n\n"
+    "This text looks like garbled Khmer, which happens when copying from a PDF made with an old Khmer font. "
+    "Please type the question again, or copy it from a Unicode source (such as a Word document or a web page)."
+)
 CHANGING_FACTS = re.compile(
     r"\b20(?:2[3-9]|[3-9]\d)\b|២០(?:២[៣-៩]|[៣-៩][០-៩])|\b(?:latest|current(?:ly)?|recent(?:ly)?|right now|nowadays|this year|"
     r"last year|today'?s|news|won|winners?|champions?|prices?|costs? now|exchange rate|population|president|prime minister|"
@@ -1127,6 +1145,15 @@ class ModelWorker:
         return bool(SEARCH_REQUEST.search(user_text))
 
     def _generate(self, text: str, settings: dict) -> None:
+        if looks_garbled(text) and settings.get("code_root") is None:
+            # Answering scrambled text only produces confident nonsense; ask for readable text instead.
+            self._emit("generation_started")
+            self._emit("token", GARBLED_REPLY)
+            self.messages = [*self.messages, {"role": "user", "content": text}, {"role": "assistant", "content": GARBLED_REPLY}]
+            self._emit("generation_done", {"input_tokens": 0, "output_tokens": 0, "tokens_per_second": 0, "peak_vram_gib": 0,
+                                            "stopped": False, "loop_guard_triggered": False, "truncated": False,
+                                            "clean_reply": GARBLED_REPLY})
+            return
         language, in_khmer = reply_target(text, reply_language(settings.get("language")))
         # With the online translator on, a Khmer conversation runs in English behind the scenes (see SYSTEM_TRANSLATED).
         # Khmer tools: "google" (online, asked first) or "local" (the model itself translates the question and
