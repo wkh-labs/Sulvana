@@ -54,6 +54,10 @@ BASE = BASES[_base_key()]
 MODEL_FILE = BASE["file"]
 ENGINE_NAME = BASE["short"]
 LLAMA_SERVER = ROOT / "vision-runner/llama-server"
+# Khmer tools on this computer: Tencent's Hy-MT2 1.8B translation model (Apache 2.0) on the CPU, next to the chat
+# model on the GPU. In a blind comparison it beat the chat model's own Khmer rewriting on 17 of 19 answers.
+MT_MODEL = ROOT / "models/hy-mt2-1.8b/Hy-MT2-1.8B-Q8_0.gguf"
+MT_THREADS = max(2, min(8, (os.cpu_count() or 8) // 2))
 IMAGE_SCRIPT = ROOT / "z-image.sh"
 IMAGE_OUTPUT_DIR = ROOT / "runs/z-image"
 VISION_CLI = ROOT / "vision-runner/llama-mtmd-cli"
@@ -340,6 +344,9 @@ class ModelWorker:
         if self.thread.is_alive() and threading.current_thread() is not self.thread:
             self.thread.join(timeout=15)
         self._stop_server()
+        process, self.mt_process = getattr(self, "mt_process", None), None
+        if process is not None and process.poll() is None:
+            process.terminate()
 
     def resolve_approval(self, request_id: str, decision: str) -> bool:
         if decision not in {"allow", "deny", "allow_all"}:
@@ -483,10 +490,81 @@ class ModelWorker:
                 with urllib.request.urlopen(f"{self.endpoint}/health", timeout=1) as response:
                     if response.status == 200:
                         self._emit("ready", {"model": model, "gpu": "RTX 5070 Laptop GPU"})
+                        if getattr(self, "mt_process", None) is None:
+                            threading.Thread(target=self._start_mt_server, name="khmer-tools", daemon=True).start()
                         return
             except urllib.error.URLError:
                 time.sleep(0.5)
         self._stop_server(); raise TimeoutError(f"{ENGINE_NAME} took too long to start.")
+
+    def _start_mt_server(self) -> None:
+        """Start the CPU translation model used by the Khmer tools; the chat works without it."""
+        self.mt_endpoint = ""
+        if not MT_MODEL.is_file() or not LLAMA_SERVER.is_file():
+            return
+        with socket.socket() as reserved:
+            reserved.bind(("127.0.0.1", 0))
+            port = reserved.getsockname()[1]
+        self.mt_process = subprocess.Popen([str(LLAMA_SERVER), "-m", str(MT_MODEL), "--host", "127.0.0.1", "--port", str(port),
+                                            "-ngl", "0", "-c", "8192", "-t", str(MT_THREADS), "--parallel", "1", "--no-webui"],
+                                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, preexec_fn=die_with_parent)
+        for _ in range(120):
+            if self.mt_process.poll() is not None:
+                return
+            try:
+                with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=1) as response:
+                    if response.status == 200:
+                        self.mt_endpoint = f"http://127.0.0.1:{port}"
+                        break
+            except (urllib.error.URLError, OSError):
+                time.sleep(0.5)
+        # Stay alive while the server runs: PR_SET_PDEATHSIG (die_with_parent) fires when the *thread* that
+        # started a process ends, so returning here would stop the server straight away.
+        self.mt_process.wait()
+        self.mt_endpoint = ""
+
+    def _mt(self, text: str, target: str, terms: list[tuple[str, str]]) -> str | None:
+        """Translate with Hy-MT2 ("Khmer" or "English"), giving it the glossary terms. None if it is not running
+        or the result looks wrong (loops, other scripts, far too long or short)."""
+        endpoint = getattr(self, "mt_endpoint", "")
+        if not endpoint or not text.strip():
+            return None
+        pairs = [(k, e) if target == "English" else (e, k) for k, e in terms]
+        reference = "".join(f"{source} translates to {result.split(' (')[0]}\n" for source, result in pairs)
+        prompt = ((f"Reference the following translations:\n{reference}\n" if reference else "")
+                  + f"Translate the following text into {target}. Note that you must ONLY output the translated result "
+                  "without any additional explanation. Keep line breaks, list markers, numbers, code and links as they are:\n\n" + text)
+        body = {"messages": [{"role": "user", "content": prompt}], "temperature": 0.7, "top_p": 0.6, "top_k": 20,
+                "repeat_penalty": 1.05, "max_tokens": 200 + 3 * len(text)}
+        try:
+            request = urllib.request.Request(f"{endpoint}/v1/chat/completions", data=json.dumps(body).encode(),
+                                             headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(request, timeout=300) as response:
+                result = json.load(response)["choices"][0]["message"]["content"].strip()
+        except (OSError, ValueError, KeyError, IndexError):
+            return None
+        if (not result or has_runaway_repetition(result) or len(result) > 4 * len(text) + 100
+                or re.search(r"[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af\u0e00-\u0eff]", result)
+                or (target == "Khmer" and len(re.findall(r"[A-Za-z]", text)) > 20 and not KHMER.search(result))):
+            return None
+        if target == "Khmer":
+            result = re.sub(r"([\u1780-\u17FF][\u1780-\u17FF\s]{0,40}?)\s*\(\s*\1\s*\)", r"\1", khmer_names(result))
+        return result
+
+    def _mt_khmer(self, english: str) -> str:
+        """English answer text → Khmer with Hy-MT2, paragraph by paragraph; code blocks stay as they are and a
+        paragraph that cannot be translated stays in English rather than being shown wrong."""
+        out = []
+        for part in re.split(r"(```[\s\S]*?```)", english):
+            for piece in ([part] if part.startswith("```") else re.split(r"(\n\s*\n)", part)):
+                if piece.startswith("```") or not re.search(r"[A-Za-z]{2}", piece):
+                    out.append(piece)
+                    continue
+                lead, trail = piece[:len(piece) - len(piece.lstrip())], piece[len(piece.rstrip()):]
+                source = piece.strip()
+                terms = glossary_for_english(source)
+                out.append(lead + (self._mt(source, "Khmer", terms) or self._mt(source, "Khmer", terms) or source) + trail)
+        return "".join(out)
 
     def _stop_server(self) -> None:
         process, self.server_process = self.server_process, None
@@ -677,7 +755,8 @@ class ModelWorker:
         shown: list[str] = []
         # Khmer tools on this computer: the English answer is shown as a draft while it is written, then the model
         # rewrites it in Khmer (_write_khmer). Google translates a paragraph at a time while the answer streams.
-        draft = bool(translate_to) and settings.get("translate_engine") == "local"
+        use_mt = bool(translate_to) and settings.get("translate_engine") == "local" and bool(getattr(self, "mt_endpoint", ""))
+        draft = bool(translate_to) and settings.get("translate_engine") == "local" and not use_mt
 
         def flush(final: bool = False) -> None:
             nonlocal english
@@ -690,9 +769,12 @@ class ModelWorker:
             if cut <= 0 or self.translation_failed:
                 return
             chunk, english = english[:cut], english[cut:]
-            translated, used = translate_markdown(chunk, translate_to, settings.get("translate_engine", "local"),
-                                                  self._translate_sentence) \
-                if chunk.strip() else (chunk, "")
+            if use_mt:
+                translated, used = (self._mt_khmer(chunk), "local") if chunk.strip() else (chunk, "")
+            else:
+                translated, used = translate_markdown(chunk, translate_to, settings.get("translate_engine", "local"),
+                                                      self._translate_sentence) \
+                    if chunk.strip() else (chunk, "")
             if used:
                 self.translation_used.add(used)
             if translated is None:
@@ -1024,7 +1106,7 @@ class ModelWorker:
                 # Locally the model translates the question itself: NLLB is weak from Khmer into English ("amok"
                 # became "amoeba"), and given the Khmer the model answers in Khmer whatever it is told.
                 engine = "local"
-                rough = self._translate_question(text)
+                rough = self._mt(text, "English", glossary_terms(text)) or self._translate_question(text)
             translated = rough is not None
             english_text = rough or text
             terms = glossary_terms(text) if translated else []

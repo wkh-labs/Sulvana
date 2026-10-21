@@ -22,7 +22,7 @@ The results Sulvana used are listed under its answer as **Sources**. Clicking a 
 
 Sulvana's own written Khmer has mistakes, so for Khmer conversations it can work in English and have its answer translated. Settings → Khmer tools (ឧបករណ៍ភាសាខ្មែរ) has three choices. The app calls this "Khmer tools" and does not use the word "translate" for it:
 
-- **This computer** (default): Sulvana translates the user's Khmer question into English itself, answers in English, and NLLB-200 (a translation model running on the CPU, `models/nllb-200-1.3B-ct2-int8`) writes the Khmer a paragraph at a time. Nothing leaves the computer. Replies are marked "translated on this computer".
+- **This computer** (default): Hy-MT2 1.8B, Tencent's translation model, runs on the CPU (`models/hy-mt2-1.8b`, 1.9 GB, started by Sulvana next to the chat model). It translates the user's Khmer question into English, Sulvana answers in English, and Hy-MT2 writes the Khmer a paragraph at a time while the answer is written. School and technical terms come from `knowledge/khmer-english-glossary.md`. Nothing leaves the computer. If Hy-MT2 is not available, the chat model rewrites its own answer in Khmer instead (slower and less accurate: in a blind comparison Hy-MT2 won 17 of 19 answers). Replies are marked "Khmer tools".
 - **Google**: Google Translate's public web endpoint translates both ways. Most accurate, but the Khmer messages and replies are sent to Google, so the app asks once on the home screen before using it. Replies are marked "via Google Translate" and the header shows "Google Translate on". If Google refuses requests (HTTP 429) it is left alone for 10 minutes and the local translator takes over.
 - **Off**: Sulvana writes the Khmer itself.
 

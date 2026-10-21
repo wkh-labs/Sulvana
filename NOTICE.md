@@ -10,8 +10,9 @@ Sulvana is a non-commercial project by **WKH Labs** (Wisdom · Khmer · Heritage
   WKH Labs is not affiliated with or endorsed by Xiaomi or Alibaba.
 - **Sulvana v1** was built on [Dolphin 3.0 Llama 3.1 8B](https://huggingface.co/dphn/Dolphin3.0-Llama3.1-8B), based on
   Meta's Llama 3.1 8B, licensed under the Llama 3.1 Community License. Built with Llama.
-- The local Khmer translator is [NLLB-200 distilled 1.3B](https://huggingface.co/facebook/nllb-200-distilled-1.3B) by Meta
-  (CC BY-NC 4.0, non-commercial), in the CTranslate2 conversion [OpenNMT/nllb-200-distilled-1.3B-ct2-int8](https://huggingface.co/OpenNMT/nllb-200-distilled-1.3B-ct2-int8).
+- The Khmer tools on this computer use [Hy-MT2 1.8B](https://huggingface.co/tencent/Hy-MT2-1.8B) by Tencent (Apache License 2.0),
+  in the GGUF build [tencent/Hy-MT2-1.8B-GGUF](https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF). NLLB-200 distilled 1.3B (Meta, CC BY-NC 4.0)
+  is kept only as a last fallback for a single paragraph.
 - Reading Khmer aloud uses [facebook/mms-tts-khm](https://huggingface.co/facebook/mms-tts-khm), Meta's Massively Multilingual
   Speech text-to-speech model for Khmer (CC BY-NC 4.0, non-commercial).
 - Image understanding uses Qwen2.5-VL-3B-Instruct (Apache 2.0); image generation uses Z-Image Turbo (see `Z-Image-Turbo.md`).
