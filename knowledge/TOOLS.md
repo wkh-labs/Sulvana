@@ -28,6 +28,10 @@ Sulvana's own written Khmer has mistakes, so for Khmer conversations it can work
 
 Code blocks are never translated. Questions about Khmer itself (grammar, spelling, word meanings) can be answered less well through English. `/translate <text>` translates one piece of text (with Google only if the user chose Google). `SULVANA_TRANSLATE=0` disables translation for everyone.
 
+## Read aloud
+
+Under a Khmer answer, **Listen** (ស្តាប់) reads it aloud with a Khmer voice that runs on this computer (`sulvana_speech.py`, Meta's MMS text-to-speech, `models/mms-tts-khm`, 145 MB). Numbers are read as Khmer words; code, links and English words are skipped. Nothing is sent online.
+
 A friend using the shared link (share.sh) can chat, but terminal checks and coding mode are only available on the computer running Sulvana.
 
 ## Read-only terminal

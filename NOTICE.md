@@ -12,6 +12,8 @@ Sulvana is a non-commercial project by **WKH Labs** (Wisdom · Khmer · Heritage
   Meta's Llama 3.1 8B, licensed under the Llama 3.1 Community License. Built with Llama.
 - The local Khmer translator is [NLLB-200 distilled 1.3B](https://huggingface.co/facebook/nllb-200-distilled-1.3B) by Meta
   (CC BY-NC 4.0, non-commercial), in the CTranslate2 conversion [OpenNMT/nllb-200-distilled-1.3B-ct2-int8](https://huggingface.co/OpenNMT/nllb-200-distilled-1.3B-ct2-int8).
+- Reading Khmer aloud uses [facebook/mms-tts-khm](https://huggingface.co/facebook/mms-tts-khm), Meta's Massively Multilingual
+  Speech text-to-speech model for Khmer (CC BY-NC 4.0, non-commercial).
 - Image understanding uses Qwen2.5-VL-3B-Instruct (Apache 2.0); image generation uses Z-Image Turbo (see `Z-Image-Turbo.md`).
 
 The licence texts of the base models are distributed with their weights on Hugging Face and must accompany any copy of

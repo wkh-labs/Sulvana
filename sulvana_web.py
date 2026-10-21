@@ -24,6 +24,8 @@ ROOT = Path("/home/tanchjim/Documents/Codex/ai-workspace")
 sys.path.insert(0, str(ROOT))
 import sulvana_code  # noqa: E402  (undo of coding-mode edits)
 from sulvana_worker import die_with_parent  # noqa: E402
+
+import sulvana_speech  # noqa: E402  (reading Khmer replies aloud)
 DIST = ROOT / "sulvana-ui/dist"
 IMAGE_DIR = ROOT / "runs/z-image"
 PROFILE_FILE = ROOT / ".runtime" / "sulvana-model.json"
@@ -278,6 +280,20 @@ def main() -> None:
             req_path = urlsplit(self.path).path.rstrip("/")
             if not self._is_local() and req_path in {"/api/approval", "/api/code/undo"}:
                 self._send(403, b"Forbidden: Coding mode and system approvals are only available locally on the laptop", "text/plain"); return
+            if req_path == "/api/speak":
+                # Read a Khmer reply aloud with the speech model on this computer (sulvana_speech.py).
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if not 1 <= length <= 64_000: raise ValueError("Text is empty or too long")
+                    text = json.loads(self.rfile.read(length)).get("text")
+                    if not isinstance(text, str) or not text.strip(): raise ValueError("Text is empty")
+                    if not sulvana_speech.available(): raise ValueError("The Khmer voice is not installed")
+                    self._send(200, sulvana_speech.speak(text), "audio/wav")
+                except (ValueError, TypeError, AttributeError, json.JSONDecodeError) as problem:
+                    self._send(400, str(problem).encode(), "text/plain")
+                except (OSError, RuntimeError) as problem:
+                    self._send(500, f"Could not read aloud: {problem}".encode(), "text/plain")
+                return
             if req_path not in {"/api/chat", "/api/stop", "/api/clear", "/api/approval", "/api/restart", "/api/code/undo", "/api/model", "/api/feedback"}:
                 self._send(404, b"Not found", "text/plain"); return
             if req_path == "/api/code/undo":

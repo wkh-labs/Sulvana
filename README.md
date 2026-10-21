@@ -34,6 +34,11 @@ from `OpenNMT/nllb-200-distilled-1.3B-ct2-int8`; needs `uv pip install --python 
 so nothing leaves the laptop. Users can choose Google Translate instead (more accurate, sends the text to Google,
 asked first) or turn it off. Details: `knowledge/TOOLS.md`.
 
+**Listen** under a Khmer answer reads it aloud on this computer (`sulvana_speech.py`, model
+`models/mms-tts-khm` from `facebook/mms-tts-khm`, 145 MB).
+
+The app's own buttons and labels are in Khmer by default (Settings → Interface language).
+
 Under the message box, **Code** turns Sulvana into a coding agent for one project folder you choose: it
 reads and searches files by itself, and asks before every edit (shown as a diff) and every command (run in
 a sandbox with no network). See `knowledge/TOOLS.md` and `sulvana_code.py`.

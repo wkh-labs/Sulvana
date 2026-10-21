@@ -65,9 +65,19 @@ than then also just like some any all our out use using tell me please""".split(
 _note_cache: dict[Path, tuple[float, list[tuple[str, str]]]] = {}
 
 
+def _stem(word: str) -> str:
+    """A rough English stem so that "fevers", "fever" and "children", "child" match."""
+    if word == "children":
+        return "child"
+    for ending in ("ies", "es", "s", "ing", "ed"):
+        if len(word) > len(ending) + 3 and word.endswith(ending):
+            return word[:-len(ending)] + ("y" if ending == "ies" else "")
+    return word
+
+
 def _note_terms(text: str) -> set[str]:
     """Words for Latin-script text, and character trigrams for Khmer, which has no spaces."""
-    terms = {word for word in re.findall(r"[a-z0-9][a-z0-9'-]{2,}", text.casefold()) if word not in _STOPWORDS}
+    terms = {_stem(word) for word in re.findall(r"[a-z0-9][a-z0-9'-]{2,}", text.casefold()) if word not in _STOPWORDS}
     for run in _KHMER_RUN.findall(text):
         terms.update(run[i:i + 3] for i in range(max(1, len(run) - 2)))
     return terms
@@ -115,7 +125,8 @@ def note_passages(query: str, budget: int = NOTES_BUDGET, limit: int = 5) -> lis
             shared = wanted & have
             # Fraction of the message's terms the section covers, so short notes are not drowned out.
             score = len(shared) / len(wanted)
-            single_match = len(wanted) == 1 and len(shared) == 1 and len(next(iter(wanted))) >= 4
+            # A short question may share just one distinctive word with the right note ("dengue", "amok").
+            single_match = len(wanted) <= 3 and len(shared) == 1 and len(next(iter(shared))) >= 5
             # Two shared words out of ten ("write", "short") is a coincidence, not a match.
             if single_match or (len(shared) >= 2 and score >= 0.3) or (len(shared) >= 3 and score >= 0.15):
                 scored.append((score, str(path.relative_to(ROOT)), title, body))
@@ -298,6 +309,7 @@ def web_search(query: str, sources: list | None = None) -> str:
 TRANSLATE_URL = "https://translate.googleapis.com/translate_a/single"
 NLLB_DIR = ROOT / "models/nllb-200-1.3B-ct2-int8"
 NLLB_LANGS = {"km": "khm_Khmr", "en": "eng_Latn"}
+NLLB_BEAM = 2   # measured: about 40% faster than 4 with the same quality
 KHMER_CHAR = re.compile(r"[\u1780-\u17FF]")
 _CODE = re.compile(r"```[\s\S]*?```|`[^`\n]+`")
 _translations: dict[tuple[str, str, str], str] = {}
@@ -358,6 +370,8 @@ def google_translate(text: str, target: str, source: str = "auto") -> str | None
     # The translator pads markdown markers with spaces ("** word **", "1 ."); put them back together.
     result = re.sub(r"\*\*\s*([^*\n]+?)\s*\*\*", r"**\1**", result)
     result = re.sub(r"^(\s*)(\d+)\s+\.\s", r"\1\2. ", result, flags=re.M)
+    if target == "km":
+        result = khmer_names(result)
     return _remember(key, result)
 
 
@@ -386,6 +400,12 @@ def warm_local_translator() -> None:
         threading.Thread(target=_load_nllb, name="nllb-load", daemon=True).start()
 
 
+def khmer_names(text: str) -> str:
+    """"Angkor Wat (ប្រាសាទអង្គរវត្ត)" → "ប្រាសាទអង្គរវត្ត (Angkor Wat)": in Khmer text the Khmer form comes first."""
+    return re.sub(r"\b([A-Z][A-Za-z0-9'’.-]*(?:\s+[A-Z0-9][A-Za-z0-9'’.-]*){0,4})\s*\(\s*([\u1780-\u17FF][^()\n]{0,60}?)\s*\)",
+                  r"\2 (\1)", text)
+
+
 def _tidy_khmer(text: str) -> str:
     """NLLB often puts a space between every Khmer word, which Khmer writing does not do."""
     word_gap = r"(?<=[\u1780-\u17D3\u17D5-\u17FF]) (?=[\u1780-\u17FF])"   # not after ។, which ends a sentence
@@ -398,17 +418,24 @@ def _tidy_khmer(text: str) -> str:
     return re.sub(r"[ \t]+([,។?!:;)])", r"\1", "\n".join(lines)).replace("( ", "(")
 
 
-def _drop_inventions(source: str, translated: str) -> str:
-    """NLLB sometimes adds bracketed text that is not in the source, like "[Picture on page 12]"."""
-    if "[" not in source:
-        translated = re.sub(r"\s*\[[^\]]{0,80}\]", "", translated)
-    if "(" not in source:
-        translated = re.sub(r"\s*\([^)]{0,80}\)\s*$", "", translated)
-    return translated.strip()
+def _invented(source: str, translated: str) -> bool:
+    """NLLB's typical failure on short chatty sentences: a made-up "[Picture on page 12]" or "17." instead of a
+    translation, or almost nothing. Names and terms it keeps in Latin script are fine."""
+    if ("[" in translated and "[" not in source) or ("ទំព័រ" in translated and "page" not in source.lower()):
+        return True
+    if re.match(r"^\s*[០-៩0-9]+\s*\.", translated) and not re.match(r"^\s*\d", source):
+        return True
+    # Its training data includes a lot of Bible text, which leaks into unrelated sentences ("study about Jehovah").
+    if re.search(r"យេហូវ៉ា|ព្រះយេស៊ូ|ព្រះគម្ពីរ|គ្រីស្ទ", translated) and not re.search(r"jehovah|jesus|bible|christ|god", source, re.I):
+        return True
+    words = re.findall(r"\b[a-z]{3,}\b", source)               # lower-case English words that should be translated
+    return len(words) >= 3 and len(KHMER_CHAR.findall(translated)) < 2 * len(words)
 
 
-def local_translate(text: str, target: str) -> str | None:
-    """Translate with NLLB on this computer, sentence by sentence; code, list markers and blank lines are kept."""
+def local_translate(text: str, target: str, rescue: Callable[[str], str | None] | None = None) -> str | None:
+    """Translate with NLLB on this computer, sentence by sentence; code, list markers and blank lines are kept.
+    A sentence NLLB makes up instead of translating goes to `rescue` (another translator); if that fails too,
+    the sentence is left in English rather than shown wrong."""
     clean = text.strip()
     if not clean:
         return text
@@ -446,30 +473,35 @@ def local_translate(text: str, target: str) -> str | None:
         batch = [tokenizer.convert_ids_to_tokens(tokenizer.encode(piece)) for piece in pieces]
         with _nllb_lock:
             results = nllb["model"].translate_batch(batch, target_prefix=[[NLLB_LANGS[target]]] * len(batch),
-                                                     beam_size=4, max_decoding_length=512, repetition_penalty=1.1)
-        done = iter(_drop_inventions(piece, tokenizer.decode(tokenizer.convert_tokens_to_ids(result.hypotheses[0][1:]),
-                                                             skip_special_tokens=True))
-                    for piece, result in zip(pieces, results))
+                                                     beam_size=NLLB_BEAM, max_decoding_length=512, repetition_penalty=1.1)
+        outputs = [tokenizer.decode(tokenizer.convert_tokens_to_ids(result.hypotheses[0][1:]), skip_special_tokens=True)
+                   for result in results]
+        for index, (piece, output) in enumerate(zip(pieces, outputs)):
+            if target == "km" and _invented(piece, output):
+                outputs[index] = (rescue(piece) if rescue else None) or piece
+        done = iter(outputs)
     lines = []
     for parts in plan:
         words = [next(done) if translate_it else chunk for translate_it, chunk in parts]
         lines.append(" ".join(word.strip() for word in words if word.strip()) if len(words) > 1 else "".join(words))
     result = "\n".join(lines)
     if target == "km":
-        result = _tidy_khmer(result)
+        result = khmer_names(_tidy_khmer(result))
     return _remember(key, result)
 
 
-def translate(text: str, target: str, engine: str = "google") -> tuple[str | None, str]:
+def translate(text: str, target: str, engine: str = "google",
+              rescue: Callable[[str], str | None] | None = None) -> tuple[str | None, str]:
     """Translate with the chosen engine; Google falls back to the local translator. Returns (text, engine used)."""
     if engine == "google":
         result = google_translate(text, target)
         if result is not None:
             return result, "google"
-    return local_translate(text, target), "local"
+    return local_translate(text, target, rescue), "local"
 
 
-def translate_markdown(text: str, target: str, engine: str = "google") -> tuple[str | None, str]:
+def translate_markdown(text: str, target: str, engine: str = "google",
+                       rescue: Callable[[str], str | None] | None = None) -> tuple[str | None, str]:
     """Translate a reply paragraph by paragraph so that fenced code blocks pass through unchanged."""
     out: list[str] = []
     used = engine
@@ -477,7 +509,7 @@ def translate_markdown(text: str, target: str, engine: str = "google") -> tuple[
         if part.startswith("```") or not part.strip():
             out.append(part)
             continue
-        translated, by = translate(part, target, engine)
+        translated, by = translate(part, target, engine, rescue)
         if translated is None:
             return None, used
         if by != engine:

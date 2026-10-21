@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { ArrowDown, ArrowUp, Menu, Brain, FileDown, RefreshCw, Check, ChevronRight, ChevronsDown, Code, Copy, Download, FilePen, FilePlus, FileText, FolderCode, FolderOpen, Globe, Image as ImageIcon, ImagePlus, Lightbulb, PencilLine, ThumbsUp, MessageCircle, Paperclip, RotateCcw, Search, Settings, ShieldCheck, Sparkles, Square, SquarePen, SquareTerminal, Trash2, TriangleAlert, Undo2, Wrench, X, type LucideIcon } from 'lucide-react';
+import { ArrowDown, ArrowUp, Menu, Volume2, LoaderCircle, Brain, FileDown, RefreshCw, Check, ChevronRight, ChevronsDown, Code, Copy, Download, FilePen, FilePlus, FileText, FolderCode, FolderOpen, Globe, Image as ImageIcon, ImagePlus, Lightbulb, PencilLine, ThumbsUp, MessageCircle, Paperclip, RotateCcw, Search, Settings, ShieldCheck, Sparkles, Square, SquarePen, SquareTerminal, Trash2, TriangleAlert, Undo2, Wrench, X, type LucideIcon } from 'lucide-react';
 import { Markdown } from './markdown';
 import { WKH_MARK_DARK, WKH_MARK_LIGHT } from './wkhLogo';
 import './desktop.css';
@@ -53,7 +53,7 @@ type CodeTask = { task: string; root: string; changed: string[]; undone?: boolea
 /** A web result (url) or a section of a local Markdown note (file). */
 type Source = { title: string; url?: string; file?: string };
 type Conversation = { id: string; title: string; messages: Message[]; updatedAt?: number };
-type Preferences = { temperature: number; maxTokens: number; language: string; theme: 'dark' | 'light'; reasoning: boolean; code: boolean; codeRoot: string; textSize: TextSize; translate: Translator; translateAsked: boolean };
+type Preferences = { temperature: number; maxTokens: number; language: string; theme: 'dark' | 'light'; reasoning: boolean; code: boolean; codeRoot: string; textSize: TextSize; translate: Translator; translateAsked: boolean; uiLanguage: 'km' | 'en' };
 /** Better Khmer: who writes the Khmer. 'local' = NLLB on this computer, 'google' = Google Translate (online). */
 type Translator = 'off' | 'local' | 'google';
 type EngineStatus = { state: string; detail: string; approval?: ApprovalRequest | null };
@@ -69,8 +69,9 @@ const LANGUAGES = ['Auto', 'ខ្មែរ (Khmer)', 'English', '中文 (Chines
 // Khmer needs roughly 1.7 tokens per character, so the limits are generous.
 const TOKEN_LIMITS = [512, 1024, 2048, 4096, 8192];
 const LENGTH_NAMES: Record<number, string> = { 512: 'Short', 1024: 'Medium', 2048: 'Long', 4096: 'Very long', 8192: 'Longest' };
+const LENGTH_NAMES_KM: Record<number, string> = { 512: 'ខ្លី', 1024: 'មធ្យម', 2048: 'វែង', 4096: 'វែងណាស់', 8192: 'វែងបំផុត' };
 type TextSize = 'small' | 'default' | 'large';
-const DEFAULT_PREFERENCES: Preferences = { temperature: 0.4, maxTokens: 2048, language: 'Auto', theme: 'dark', reasoning: false, code: false, codeRoot: '', textSize: 'default', translate: 'local', translateAsked: false };
+const DEFAULT_PREFERENCES: Preferences = { temperature: 0.4, maxTokens: 2048, language: 'Auto', theme: 'dark', reasoning: false, code: false, codeRoot: '', textSize: 'default', translate: 'local', translateAsked: false, uiLanguage: 'km' };
 const KHMER = /[\u1780-\u17FF]/;
 const NOTE_TEXT: Record<Note, string> = {
   error: 'Something went wrong.',
@@ -167,6 +168,7 @@ function cleanPreferences(raw: unknown): Preferences {
     translate: saved.translate === 'off' || saved.translate === 'local' ? saved.translate
       : (saved.translate === 'google' || (saved.translate as unknown) === true) && saved.translateAsked === true ? 'google' : 'local',
     translateAsked: saved.translateAsked === true,
+    uiLanguage: saved.uiLanguage === 'en' ? 'en' : 'km',
   };
 }
 
@@ -464,6 +466,10 @@ function dateGroup(time?: number): string {
   return 'Earlier';
 }
 const GROUP_ORDER = ['Today', 'Yesterday', 'Previous 7 days', 'Earlier'];
+const GROUP_KM: Record<string, string> = { Today: 'ថ្ងៃនេះ', Yesterday: 'ម្សិលមិញ', 'Previous 7 days': '៧ ថ្ងៃមុន', Earlier: 'មុននេះ' };
+/** Interface language for the app's own labels (Settings → Interface language). Set on every render. */
+let uiLanguage: 'km' | 'en' = 'km';
+const L = (en: string, km: string) => uiLanguage === 'km' ? km : en;
 
 /** A conversation as a Markdown document (images and tool steps summarised). */
 function conversationMarkdown(chat: Conversation): string {
@@ -542,6 +548,9 @@ export default function DesktopApp() {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [storageError, setStorageError] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  // Read aloud: which reply is loading or playing, and its audio.
+  const [speaking, setSpeaking] = useState<{ id: string; state: 'loading' | 'playing' } | null>(null);
+  const speechAudio = useRef<HTMLAudioElement | null>(null);
   const [restarting, setRestarting] = useState(false);
   const [searchOn, setSearchOn] = useState(false);
   // Phones: the chat list is a drawer opened from the top bar.
@@ -585,10 +594,11 @@ export default function DesktopApp() {
   // The engine reports "<assistant name> • <model it is built on> • <GPU> • <quantisation>".
   const [modelName = 'Sulvana', builtOn = ''] = modelDetail ? modelDetail.split(' • ') : [];
   const baseModel = builtOn.replace(/ \+ LoRA .*$/, '');
-  const statusText = engineDown ? (status.state === 'offline' ? 'Not connected' : 'Engine stopped')
+  uiLanguage = preferences.uiLanguage;
+  const statusText = engineDown ? (status.state === 'offline' ? L('Not connected', 'មិនបានភ្ជាប់') : L('Engine stopped', 'ម៉ាស៊ីនបានឈប់'))
     : status.state === 'loading' ? progress || 'Loading the model…'
-      : streaming ? progress || (approval ? 'Waiting for you…' : streaming.kind === 'image' ? 'Creating image…' : streaming.kind === 'vision' ? 'Reading image…' : 'Generating…')
-        : ready ? 'Ready on GPU' : progress || 'Busy…';
+      : streaming ? progress || (approval ? 'Waiting for you…' : streaming.kind === 'image' ? L('Creating image…', 'កំពុងបង្កើតរូបភាព…') : streaming.kind === 'vision' ? L('Reading image…', 'កំពុងមើលរូបភាព…') : L('Generating…', 'កំពុងសរសេរ…'))
+        : ready ? L('Ready on GPU', 'រួចរាល់') : progress || L('Busy…', 'រវល់…');
 
   const focusComposer = () => { window.setTimeout(() => composer.current?.focus(), 0); };
 
@@ -945,6 +955,31 @@ export default function DesktopApp() {
     } catch { setNotice({ kind: 'error', text: 'Could not save the image.' }); }
   }
 
+  function stopSpeaking() {
+    speechAudio.current?.pause();
+    if (speechAudio.current?.src) URL.revokeObjectURL(speechAudio.current.src);
+    speechAudio.current = null;
+    setSpeaking(null);
+  }
+
+  async function listen(message: Message) {
+    if (speaking?.id === message.id) { stopSpeaking(); return; }
+    stopSpeaking();
+    setSpeaking({ id: message.id, state: 'loading' });
+    try {
+      const response = await fetch(api('/api/speak'), { method: 'POST', headers: apiHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ text: message.text }) });
+      if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`);
+      const audio = new Audio(URL.createObjectURL(await response.blob()));
+      speechAudio.current = audio;
+      audio.onended = () => stopSpeaking();
+      await audio.play();
+      setSpeaking(current => current?.id === message.id ? { id: message.id, state: 'playing' } : current);
+    } catch (cause) {
+      setSpeaking(null);
+      setNotice({ kind: 'error', text: L('Could not read aloud: ', 'មិនអាចអានឮៗបានទេ៖ ') + (cause instanceof Error ? cause.message : String(cause)) });
+    }
+  }
+
   async function copyMessage(message: Message) {
     try {
       await copyText(message.text);
@@ -1139,23 +1174,23 @@ export default function DesktopApp() {
 
   const projectName = preferences.codeRoot.split('/').filter(Boolean).pop() || '';
   const composerHint = preferences.code && ready && !streaming ? (projectName ? `Coding in ${projectName} · edits and commands ask first` : 'Choose a project folder for coding mode')
-    : searchOn && ready && !streaming ? 'Sulvana will search the web for this message.'
-    : engineDown ? 'Sulvana’s engine is not running.'
-    : status.state === 'loading' ? 'Loading the model — you can start typing.'
-      : streaming && streaming.chatId !== active.id ? 'Sulvana is replying in another conversation.'
+    : searchOn && ready && !streaming ? L('Sulvana will search the web for this message.', 'Sulvana នឹងស្វែងរកតាមអ៊ីនធឺណិតសម្រាប់សារនេះ។')
+    : engineDown ? L('Sulvana’s engine is not running.', 'ម៉ាស៊ីនរបស់ Sulvana មិនដំណើរការទេ។')
+    : status.state === 'loading' ? L('Loading the model — you can start typing.', 'កំពុងផ្ទុកម៉ូដែល — អ្នកអាចចាប់ផ្តើមវាយបាន។')
+      : streaming && streaming.chatId !== active.id ? L('Sulvana is replying in another conversation.', 'Sulvana កំពុងឆ្លើយក្នុងការសន្ទនាផ្សេង។')
         : 'Sulvana can make mistakes. Check important facts. · Sulvana អាចឆ្លើយខុស សូមផ្ទៀងផ្ទាត់ព័ត៌មានសំខាន់ៗ។';
   const rangeFill = `${((preferences.temperature - 0.1) / 1.4) * 100}%`;
 
-  return <div className={'shell' + (drawerOpen ? ' drawer-open' : '')}>
+  return <div className={'shell' + (drawerOpen ? ' drawer-open' : '') + (preferences.uiLanguage === 'km' ? ' ui-km' : '')}>
     {drawerOpen && <div className="drawer-backdrop" onClick={() => setDrawerOpen(false)} aria-hidden="true" />}
     <aside className="sidebar" onClick={event => { if ((event.target as HTMLElement).closest('.conversation > button:first-child, .new-chat')) setDrawerOpen(false); }}>
       <div className="sidebar-head">
-        <div className="brand"><Logo size={32} /><div><strong>Sulvana</strong><small>On this device</small></div></div>
+        <div className="brand"><Logo size={32} /><div><strong>Sulvana</strong><small>{L('On this device', 'នៅលើកុំព្យូទ័រនេះ')}</small></div></div>
         <button type="button" className="new-chat" onClick={startChat} title="New chat" aria-label="New chat"><SquarePen size={17} /></button>
       </div>
       <div className="sidebar-search">
         <Search size={14} aria-hidden="true" />
-        <input ref={searchBox} type="search" placeholder="Search chats  (Ctrl+K)" aria-label="Search conversations" value={query}
+        <input ref={searchBox} type="search" placeholder={L('Search chats  (Ctrl+K)', 'ស្វែងរកការសន្ទនា (Ctrl+K)')} aria-label="Search conversations" value={query}
           onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === 'Escape') { setQuery(''); focusComposer(); } }} />
       </div>
       <nav className="conversation-list" aria-label="Conversations">{(() => {
@@ -1168,8 +1203,8 @@ export default function DesktopApp() {
           const name = dateGroup(chat.updatedAt);
           groups.set(name, [...(groups.get(name) || []), chat]);
         }
-        return GROUP_ORDER.filter(name => groups.has(name)).map(name => <section key={name} aria-label={name}>
-          <div className="sidebar-heading">{name}</div>
+        return GROUP_ORDER.filter(name => groups.has(name)).map(name => <section key={name} aria-label={uiLanguage === 'km' ? GROUP_KM[name] : name}>
+          <div className="sidebar-heading">{uiLanguage === 'km' ? GROUP_KM[name] : name}</div>
           {groups.get(name)!.map(chat => {
             const live = streaming?.chatId === chat.id;
             return <div key={chat.id} className={'conversation' + (chat.id === activeId ? ' selected' : '')}>
@@ -1187,7 +1222,7 @@ export default function DesktopApp() {
           })}
         </section>);
       })()}</nav>
-      <div className="sidebar-footer"><button type="button" onClick={() => setDialog('tools')}><ShieldCheck size={15} /> Tools</button><div className="maker" title="Sulvana is made by WKH Labs: Wisdom · Khmer · Heritage"><img src={preferences.theme === 'light' ? WKH_MARK_LIGHT : WKH_MARK_DARK} alt="" /><div><strong>WKH Labs</strong><span>Wisdom · Khmer · Heritage</span></div></div></div>
+      <div className="sidebar-footer"><button type="button" onClick={() => setDialog('tools')}><ShieldCheck size={15} /> {L('Tools', 'ឧបករណ៍')}</button><div className="maker" title="Sulvana is made by WKH Labs: Wisdom · Khmer · Heritage"><img src={preferences.theme === 'light' ? WKH_MARK_LIGHT : WKH_MARK_DARK} alt="" /><div><strong>WKH Labs</strong><span>Wisdom · Khmer · Heritage</span></div></div></div>
     </aside>
     <main className="workspace" ref={workspace}>
       <header className="topbar">
@@ -1195,12 +1230,11 @@ export default function DesktopApp() {
           <button type="button" className="icon-button drawer-toggle" aria-label="Show conversations" title="Conversations" onClick={() => setDrawerOpen(true)}><Menu size={17} /></button>
           <strong>{modelName}</strong>{baseModel && <span className="model-chip" title={`${modelName} is built on ${baseModel} and runs on this computer.`}>{baseModel}</span>}
           {adapter && <span className="model-chip adapter-chip" title={`WKH Labs Khmer fine-tune loaded on top of ${baseModel || 'the base model'} (${adapter.split('+').join(', ')})`}>Khmer-tuned</span>}
-          {preferences.translate === 'google' && <span className="model-chip online-chip" title="Better Khmer uses Google Translate: Khmer messages and replies are sent to Google. Choose 'This computer' in Settings to keep everything local."><Globe size={11} /> Google Translate on</span>}
+          {preferences.translate === 'google' && <span className="model-chip online-chip" title="Better Khmer uses Google Translate: Khmer messages and replies are sent to Google. Choose 'This computer' in Settings to keep everything local."><Globe size={11} /> {L('Google Translate on', 'កំពុងប្រើ Google Translate')}</span>}
         </div>
         <div className="topbar-right">
           <span className={'status-dot ' + (ready ? 'ready' : engineDown ? 'bad' : 'busy')} aria-hidden="true" title={statusText} />
-          <span className="engine-state" role="status" title={status.detail}>{statusText}</span>
-          {speed !== null && <span className="speed" title="Speed of the last reply">{speed.toFixed(1)} tok/s</span>}
+          <span className="engine-state" role="status" title={status.detail + (speed !== null ? ` · ${L('last reply', 'ចម្លើយចុងក្រោយ')}: ${speed.toFixed(1)} tok/s` : '')}>{statusText}</span>
           <button type="button" className="icon-button plain" title="Export this chat as Markdown (Ctrl+Shift+E)" aria-label="Export chat" onClick={exportChat}><FileDown size={17} /></button>
           <button type="button" className="icon-button" title="Settings (Ctrl+,)" aria-label="Settings" onClick={() => setDialog('settings')}><Settings size={17} /></button>
         </div>
@@ -1211,15 +1245,19 @@ export default function DesktopApp() {
       }}>
         {active.messages.length === 0 ? <div className="empty">
           <div className="empty-icon"><Logo size={88} /></div>
-          <h1>What are we working on?</h1>
-          <p className="empty-khmer" lang="km">សួស្តី! តើខ្ញុំអាចជួយអ្វីបាន?</p>
-          <p>Ask anything, attach an image, or type <code>/image</code> to create one.</p>
+          {uiLanguage === 'km'
+            ? <><h1 lang="km">សួស្តី! តើខ្ញុំអាចជួយអ្វីបាន?</h1><p className="empty-khmer">What are we working on?</p>
+              <p lang="km">សួរអ្វីក៏បាន ភ្ជាប់រូបភាព ឬវាយ <code>/image</code> ដើម្បីបង្កើតរូបភាព។</p></>
+            : <><h1>What are we working on?</h1><p className="empty-khmer" lang="km">សួស្តី! តើខ្ញុំអាចជួយអ្វីបាន?</p>
+              <p>Ask anything, attach an image, or type <code>/image</code> to create one.</p></>}
           {!preferences.translateAsked && <div className="consent-card" role="region" aria-label="Better Khmer">
             <strong lang="km">ចង់បានភាសាខ្មែរល្អជាងនេះទេ?</strong>
-            <p>Sulvana thinks in English and a translator on this computer writes the Khmer. For the most accurate Khmer you can use <b>Google Translate</b> instead, but your Khmer messages and Sulvana's replies are then sent to Google. You can change this any time in Settings.</p>
+            {uiLanguage === 'km'
+              ? <p lang="km">Sulvana គិតជាភាសាអង់គ្លេស ហើយកម្មវិធីបកប្រែនៅលើកុំព្យូទ័រនេះ សរសេរជាភាសាខ្មែរ។ ដើម្បីបានភាសាខ្មែរត្រឹមត្រូវជាងនេះ អ្នកអាចប្រើ <b>Google Translate</b> ប៉ុន្តែសារជាភាសាខ្មែររបស់អ្នក និងចម្លើយរបស់ Sulvana នឹងត្រូវផ្ញើទៅ Google។ អ្នកអាចប្តូរវានៅពេលណាក៏បាន ក្នុងការកំណត់។</p>
+              : <p>Sulvana thinks in English and a translator on this computer writes the Khmer. For the most accurate Khmer you can use <b>Google Translate</b> instead, but your Khmer messages and Sulvana's replies are then sent to Google. You can change this any time in Settings.</p>}
             <div className="consent-actions">
-              <button type="button" onClick={() => setPreferences(current => ({ ...current, translate: 'local', translateAsked: true }))}>Keep it on this computer</button>
-              <button type="button" className="approve-button" onClick={() => setPreferences(current => ({ ...current, translate: 'google', translateAsked: true }))}>Use Google Translate</button>
+              <button type="button" onClick={() => setPreferences(current => ({ ...current, translate: 'local', translateAsked: true }))}>{L('Keep it on this computer', 'រក្សាទុកនៅលើកុំព្យូទ័រនេះ')}</button>
+              <button type="button" className="approve-button" onClick={() => setPreferences(current => ({ ...current, translate: 'google', translateAsked: true }))}>{L('Use Google Translate', 'ប្រើ Google Translate')}</button>
             </div>
           </div>}
           <div className="suggestions">
@@ -1234,8 +1272,8 @@ export default function DesktopApp() {
           {active.messages.map(message => {
             const failed = message.note === 'error' || message.note === 'empty' || message.note === 'interrupted';
             return <article className={'message ' + message.role + (failed ? ' failed' : '') + (KHMER.test(message.text) ? ' khmer' : '')} key={message.id} aria-busy={message.pending || undefined}>
-              <div className={'message-name' + (message.role === 'user' ? ' visually-hidden' : '')}>{message.role === 'user' ? 'You' : 'Sulvana'}{message.pending ? <span className="thinking">working</span> : message.note === 'stopped' && message.text && message.text !== NOTE_TEXT.stopped ? <span className="thinking">stopped early</span>
-                : message.translated ? <span className="thinking" title={message.translated === 'google' ? 'Sulvana answered in English and Google Translate wrote this Khmer (Settings → Better Khmer)' : 'Sulvana answered in English and the translator on this computer wrote this Khmer (Settings → Better Khmer)'}>{message.translated === 'google' ? 'via Google Translate' : 'translated on this computer'}</span> : null}</div>
+              <div className={'message-name' + (message.role === 'user' ? ' visually-hidden' : '')}>{message.role === 'user' ? 'You' : 'Sulvana'}{message.pending ? <span className="thinking">{L('working', 'កំពុងគិត')}</span> : message.note === 'stopped' && message.text && message.text !== NOTE_TEXT.stopped ? <span className="thinking">{L('stopped early', 'បានឈប់មុន')}</span>
+                : message.translated ? <span className="thinking" title={message.translated === 'google' ? 'Sulvana answered in English and Google Translate wrote this Khmer (Settings → Better Khmer)' : 'Sulvana answered in English and the translator on this computer wrote this Khmer (Settings → Better Khmer)'}>{message.translated === 'google' ? L('via Google Translate', 'បកប្រែដោយ Google') : L('translated on this computer', 'បកប្រែលើកុំព្យូទ័រនេះ')}</span> : null}</div>
               {message.attachment && <div className="attachment-label"><ImagePlus size={14} />{message.attachment}</div>}
               {message.reasoning && <Reasoning text={message.reasoning} live={!!message.pending && !message.text} />}
               {message.note === 'error' ? <div className="message-body message-problem" dir="auto"><TriangleAlert size={15} aria-hidden="true" /><span>{message.text.replace(/^Error: /, '') || NOTE_TEXT.error}</span></div>
@@ -1248,28 +1286,32 @@ export default function DesktopApp() {
                     : message.pending && message.reasoning ? null
                       : <div className={'message-body' + (message.pending ? ' message-activity' : ' message-placeholder')} dir="auto">{message.pending ? message.activity : NOTE_TEXT[message.note || 'empty']}</div>}
               {message.image && <div className="image-result"><img className="generated-image" src={message.image} alt={message.text} onError={event => { event.currentTarget.closest('.image-result')?.classList.add('missing'); }} /><span className="image-missing">This image file is no longer on this computer.</span><button type="button" className="image-save" onClick={() => saveImage(message.image!)}><Download size={14} /> Save image</button></div>}
-              {message.sources && message.sources.length > 0 && <div className="sources"><span className="sources-label">{message.sources.some(source => source.url) ? <Globe size={12} /> : <FileText size={12} />}Sources</span>{message.sources.map((source, position) => source.url
+              {message.sources && message.sources.length > 0 && <div className="sources"><span className="sources-label">{message.sources.some(source => source.url) ? <Globe size={12} /> : <FileText size={12} />}{L('Sources', 'ប្រភព')}</span>{message.sources.map((source, position) => source.url
                 ? <a className="source" key={position} href={source.url} target="_blank" rel="noreferrer noopener" title={source.url}><b>{hostOf(source.url)}</b><span>{source.title}</span></a>
                 : <span className="source source-note" key={position} title={source.file}><b><FileText size={11} />{noteName(source.file!)}</b><span dir="auto">{source.title}</span></span>)}</div>}
               {message.role === 'assistant' && !message.pending && <div className="message-actions">
-                {!busy && !message.image && message.id === active.messages[active.messages.length - 1].id && <button type="button" className="copy-message" title="Ask again for a different answer" onClick={() => regenerate(message)}><RefreshCw size={13} />Regenerate</button>}
-                {message.cut && !busy && message.id === active.messages[active.messages.length - 1].id && <button type="button" className="copy-message" onClick={() => void send(KHMER.test(message.text) ? 'សូមបន្តពីកន្លែងដែលអ្នកបានឈប់។' : 'Continue exactly where you left off, without repeating anything.')}><ChevronsDown size={13} />Continue</button>}
+                {!busy && !message.image && message.id === active.messages[active.messages.length - 1].id && <button type="button" className="copy-message" title="Ask again for a different answer" onClick={() => regenerate(message)}><RefreshCw size={13} />{L('Regenerate', 'ឆ្លើយម្តងទៀត')}</button>}
+                {message.cut && !busy && message.id === active.messages[active.messages.length - 1].id && <button type="button" className="copy-message" onClick={() => void send(KHMER.test(message.text) ? 'សូមបន្តពីកន្លែងដែលអ្នកបានឈប់។' : 'Continue exactly where you left off, without repeating anything.')}><ChevronsDown size={13} />{L('Continue', 'បន្ត')}</button>}
                 {message.code && message.code.changed.length > 0 && (message.code.undone
                   ? <span className="code-undone"><Undo2 size={13} />Changes undone</span>
                   : <button type="button" className="copy-message" title={`Restore ${message.code.changed.join(', ')} to how they were before this reply. Changes made by commands are not undone.`} disabled={busy} onClick={() => void undoTask(active.id, message)}><Undo2 size={13} />Undo {message.code.changed.length} file change{message.code.changed.length === 1 ? '' : 's'}</button>)}
                 {message.text && !message.note && !message.plain && !message.image && !message.parts && (message.feedback
-                  ? <span className="code-undone">{message.feedback === 'good' ? <ThumbsUp size={13} /> : <PencilLine size={13} />}{message.feedback === 'good' ? 'Saved as good' : 'Correction saved'}</span>
+                  ? <span className="code-undone">{message.feedback === 'good' ? <ThumbsUp size={13} /> : <PencilLine size={13} />}{message.feedback === 'good' ? L('Saved as good', 'បានរក្សាទុកថាល្អ') : L('Correction saved', 'បានរក្សាទុកការកែ')}</span>
                   : <>
-                    <button type="button" className="copy-message" title="Good answer: save it on this computer as a training example for Sulvana (not sent anywhere)" onClick={() => void sendFeedback(message, 'good', message.text)}><ThumbsUp size={13} />Good</button>
-                    <button type="button" className="copy-message" title="Correct this answer; the fixed version is saved on this computer for training (not sent anywhere)" onClick={() => { setImproving({ id: message.id, text: message.text }); setDialog('improve'); }}><PencilLine size={13} />Improve</button>
+                    <button type="button" className="copy-message" title="Good answer: save it on this computer as a training example for Sulvana (not sent anywhere)" onClick={() => void sendFeedback(message, 'good', message.text)}><ThumbsUp size={13} />{L('Good', 'ល្អ')}</button>
+                    <button type="button" className="copy-message" title="Correct this answer; the fixed version is saved on this computer for training (not sent anywhere)" onClick={() => { setImproving({ id: message.id, text: message.text }); setDialog('improve'); }}><PencilLine size={13} />{L('Improve', 'កែលម្អ')}</button>
                   </>)}
-                {message.text && message.note !== 'error' && <button type="button" className="copy-message" onClick={() => void copyMessage(message)}>{copiedId === message.id ? <Check size={13} /> : <Copy size={13} />}{copiedId === message.id ? 'Copied' : 'Copy'}</button>}
-                {(failed || (message.note === 'stopped' && (!message.text || message.text === NOTE_TEXT.stopped))) && <button type="button" className="copy-message" onClick={() => retry(message)}><RotateCcw size={13} />Edit and retry</button>}
+                {message.text && message.note !== 'error' && KHMER.test(message.text) && <button type="button" className={'copy-message' + (speaking?.id === message.id ? ' active' : '')}
+                  title={L('Read this answer aloud (Khmer voice on this computer)', 'អានចម្លើយនេះឮៗ (សំឡេងខ្មែរនៅលើកុំព្យូទ័រនេះ)')} onClick={() => void listen(message)}>
+                  {speaking?.id === message.id && speaking.state === 'loading' ? <LoaderCircle size={13} className="spin" /> : speaking?.id === message.id ? <Square size={11} fill="currentColor" /> : <Volume2 size={13} />}
+                  {speaking?.id === message.id && speaking.state === 'playing' ? L('Stop', 'ឈប់') : L('Listen', 'ស្តាប់')}</button>}
+                {message.text && message.note !== 'error' && <button type="button" className="copy-message" onClick={() => void copyMessage(message)}>{copiedId === message.id ? <Check size={13} /> : <Copy size={13} />}{copiedId === message.id ? L('Copied', 'បានចម្លង') : L('Copy', 'ចម្លង')}</button>}
+                {(failed || (message.note === 'stopped' && (!message.text || message.text === NOTE_TEXT.stopped))) && <button type="button" className="copy-message" onClick={() => retry(message)}><RotateCcw size={13} />{L('Edit and retry', 'កែ ហើយសាកម្តងទៀត')}</button>}
               </div>}
             </article>;
           })}
           <div ref={bottom} />
-          {!atBottom && <button type="button" className="jump-latest" onClick={() => { followReply.current = true; setAtBottom(true); bottom.current?.scrollIntoView({ block: 'end', behavior: 'smooth' }); }}><ArrowDown size={14} />Latest</button>}
+          {!atBottom && <button type="button" className="jump-latest" onClick={() => { followReply.current = true; setAtBottom(true); bottom.current?.scrollIntoView({ block: 'end', behavior: 'smooth' }); }}><ArrowDown size={14} />{L('Latest', 'ចុងក្រោយ')}</button>}
         </div>}
       </div>
       <div className="composer-wrap" ref={composerWrap}>
@@ -1300,13 +1342,13 @@ export default function DesktopApp() {
               const image = Array.from(event.clipboardData?.files || []).find(file => file.type.startsWith('image/'));
               if (image) { event.preventDefault(); void attachFile(image); }
             }}
-            placeholder="Message Sulvana" rows={1} dir="auto" />
+            placeholder={L('Message Sulvana', 'សរសេរសារទៅ Sulvana…')} rows={1} dir="auto" />
           <div className="composer-actions">
             <div>
               <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={event => { void attachFile(event.target.files?.[0]); event.target.value = ''; }} />
-              <button type="button" className="chip-button" onClick={selectImage} title="Attach an image" disabled={busy}><Paperclip size={15} /> Attach</button>
-              <button type="button" className="chip-button" onClick={() => { setInput(value => value.startsWith('/image') ? value : '/image ' + value); focusComposer(); }} title="Create an image" disabled={busy}><Sparkles size={15} /> Image</button>
-              <button type="button" className={'chip-button toggle' + (searchOn ? ' on' : '')} aria-pressed={searchOn} onClick={() => { setSearchOn(value => !value); focusComposer(); }} title="Search the web for this message" disabled={busy}><Globe size={15} /> Search</button>
+              <button type="button" className="chip-button" onClick={selectImage} title="Attach an image" disabled={busy}><Paperclip size={15} /> {L('Attach', 'ភ្ជាប់')}</button>
+              <button type="button" className="chip-button" onClick={() => { setInput(value => value.startsWith('/image') ? value : '/image ' + value); focusComposer(); }} title="Create an image" disabled={busy}><Sparkles size={15} /> {L('Image', 'រូបភាព')}</button>
+              <button type="button" className={'chip-button toggle' + (searchOn ? ' on' : '')} aria-pressed={searchOn} onClick={() => { setSearchOn(value => !value); focusComposer(); }} title="Search the web for this message" disabled={busy}><Globe size={15} /> {L('Search', 'ស្វែងរក')}</button>
               {!isRemote && <button type="button" className={'chip-button toggle' + (preferences.code ? ' on' : '')} aria-pressed={preferences.code} onClick={() => {
                 if (isRemote) {
                   setNotice({ kind: 'info', text: 'Coding mode is disabled remotely to protect your laptop files.' });
@@ -1315,9 +1357,9 @@ export default function DesktopApp() {
                 if (!preferences.code && !preferences.codeRoot) { setPreferences(current => ({ ...current, code: true })); void chooseProject(); }
                 else setPreferences(current => ({ ...current, code: !current.code }));
                 focusComposer();
-              }} title={isRemote ? 'Coding mode is disabled remotely' : 'Coding mode: let Sulvana read and change files in a project folder'} disabled={busy}><Code size={15} /> Code</button>}
+              }} title={isRemote ? 'Coding mode is disabled remotely' : 'Coding mode: let Sulvana read and change files in a project folder'} disabled={busy}><Code size={15} /> {L('Code', 'កូដ')}</button>}
               {preferences.code && !isRemote && <button type="button" className="chip-button project-chip" onClick={() => void chooseProject()} title={preferences.codeRoot ? `Project: ${preferences.codeRoot} — click to change` : 'Choose a project folder'} disabled={busy}><FolderCode size={15} /> {projectName || 'Choose folder'}</button>}
-              <button type="button" className={'chip-button toggle' + (preferences.reasoning ? ' on' : '')} aria-pressed={preferences.reasoning} onClick={() => { setPreferences(current => ({ ...current, reasoning: !current.reasoning })); focusComposer(); }} title="Think step by step before answering" disabled={busy}><Brain size={15} /> Reason</button>
+              <button type="button" className={'chip-button toggle' + (preferences.reasoning ? ' on' : '')} aria-pressed={preferences.reasoning} onClick={() => { setPreferences(current => ({ ...current, reasoning: !current.reasoning })); focusComposer(); }} title="Think step by step before answering" disabled={busy}><Brain size={15} /> {L('Reason', 'គិតលម្អិត')}</button>
             </div>
             {busy
               ? <button type="button" className="send-button stop" onClick={stop} title="Stop (Esc)" aria-label="Stop"><Square size={11} fill="currentColor" /></button>
@@ -1329,10 +1371,10 @@ export default function DesktopApp() {
         <div className="composer-note">{composerHint}</div>
       </div>
     </main>
-    {dialog === 'settings' && <Modal title="Settings" onClose={() => setDialog(null)}>
+    {dialog === 'settings' && <Modal title={L('Settings', 'ការកំណត់')} onClose={() => setDialog(null)}>
       <div className="form-group">
         <div className="form-row">
-          <label htmlFor="setting-language">Reply language</label>
+          <label htmlFor="setting-language">{L('Reply language', 'ភាសាឆ្លើយតប')}</label>
           <select id="setting-language" data-autofocus value={customLanguage ? '__other' : preferences.language} onChange={event => {
             const other = event.target.value === '__other';
             setCustomLanguage(other);
@@ -1350,21 +1392,24 @@ export default function DesktopApp() {
       <p className="form-note">{customLanguage ? 'Letters only. Leave it empty to match your message.' : 'Automatic replies in Khmer, or in the language you write in.'}</p>
       <div className="form-group">
         <div className="form-row">
-          <span id="setting-translate">Better Khmer</span>
+          <span id="setting-translate">{L('Better Khmer', 'ខ្មែរកាន់តែល្អ')}</span>
           <div className="segmented" role="radiogroup" aria-labelledby="setting-translate">
             {(['off', 'local', 'google'] as const).map(choice => <button type="button" key={choice} role="radio" aria-checked={preferences.translate === choice}
-              onClick={() => setPreferences(current => ({ ...current, translate: choice, translateAsked: true }))}>{choice === 'off' ? 'Off' : choice === 'local' ? 'This computer' : 'Google'}</button>)}
+              onClick={() => setPreferences(current => ({ ...current, translate: choice, translateAsked: true }))}>{choice === 'off' ? L('Off', 'បិទ') : choice === 'local' ? L('This computer', 'កុំព្យូទ័រនេះ') : 'Google'}</button>)}
           </div>
         </div>
       </div>
       <p className="form-note">{preferences.translate === 'google'
-        ? 'Most accurate. Sulvana thinks in English and Google Translate writes the Khmer, so your Khmer messages and Sulvana\'s replies are sent to Google. If Google cannot be reached, the translator on this computer takes over.'
+        ? L('Most accurate. Sulvana thinks in English and Google Translate writes the Khmer, so your Khmer messages and Sulvana\'s replies are sent to Google. If Google cannot be reached, the translator on this computer takes over.',
+          'ត្រឹមត្រូវបំផុត។ Sulvana គិតជាភាសាអង់គ្លេស ហើយ Google Translate សរសេរជាភាសាខ្មែរ ដូច្នេះសារជាភាសាខ្មែររបស់អ្នក និងចម្លើយរបស់ Sulvana ត្រូវបានផ្ញើទៅ Google។ ប្រសិនបើមិនអាចភ្ជាប់ទៅ Google បានទេ កម្មវិធីបកប្រែនៅលើកុំព្យូទ័រនេះនឹងជំនួស។')
         : preferences.translate === 'local'
-          ? 'Private. Sulvana thinks in English and a translator on this computer (NLLB) writes the Khmer. Nothing is sent online.'
-          : 'Sulvana writes Khmer itself. Private, but with more spelling and grammar mistakes.'}</p>
+          ? L('Private. Sulvana thinks in English and a translator on this computer (NLLB) writes the Khmer. Nothing is sent online. The translation sometimes picks the wrong word.',
+            'ឯកជន។ Sulvana គិតជាភាសាអង់គ្លេស ហើយកម្មវិធីបកប្រែនៅលើកុំព្យូទ័រនេះ (NLLB) សរសេរជាភាសាខ្មែរ។ គ្មានអ្វីត្រូវបានផ្ញើទៅអ៊ីនធឺណិតទេ។ ការបកប្រែពេលខ្លះប្រើពាក្យខុស។')
+          : L('Sulvana writes Khmer itself. Private, but with more spelling and grammar mistakes.',
+            'Sulvana សរសេរភាសាខ្មែរដោយខ្លួនឯង។ ឯកជន ប៉ុន្តែមានកំហុសអក្ខរាវិរុទ្ធ និងវេយ្យាករណ៍ច្រើនជាង។')}</p>
       <div className="form-group">
         <div className="form-row stacked">
-          <label htmlFor="setting-creativity">Creativity <span>{preferences.temperature <= 0.5 ? 'Precise' : preferences.temperature <= 0.9 ? 'Balanced' : 'Creative'} · {preferences.temperature.toFixed(1)}</span></label>
+          <label htmlFor="setting-creativity">{L('Creativity', 'ភាពច្នៃប្រឌិត')} <span>{preferences.temperature <= 0.5 ? L('Precise', 'ច្បាស់លាស់') : preferences.temperature <= 0.9 ? L('Balanced', 'មធ្យម') : L('Creative', 'ច្នៃប្រឌិត')} · {preferences.temperature.toFixed(1)}</span></label>
           <input id="setting-creativity" type="range" min="0.1" max="1.5" step="0.1" value={preferences.temperature} style={{ '--range-fill': rangeFill } as CSSProperties}
             onChange={event => setPreferences(current => ({ ...current, temperature: Number(event.target.value) }))} />
         </div>
@@ -1372,13 +1417,13 @@ export default function DesktopApp() {
       <p className="form-note">Lower is more focused and repeatable; higher is more varied.</p>
       <div className="form-group">
         <div className="form-row">
-          <label htmlFor="setting-length">Maximum reply length</label>
+          <label htmlFor="setting-length">{L('Maximum reply length', 'ប្រវែងចម្លើយ')}</label>
           <select id="setting-length" value={preferences.maxTokens} onChange={event => setPreferences(current => ({ ...current, maxTokens: Number(event.target.value) }))}>
-            {TOKEN_LIMITS.map(value => <option key={value} value={value}>{LENGTH_NAMES[value]}</option>)}
+            {TOKEN_LIMITS.map(value => <option key={value} value={value}>{uiLanguage === 'km' ? LENGTH_NAMES_KM[value] : LENGTH_NAMES[value]}</option>)}
           </select>
         </div>
         <div className="form-row">
-          <label htmlFor="setting-model">Model</label>
+          <label htmlFor="setting-model">{L('Model', 'ម៉ូដែល')}</label>
           <select id="setting-model" value={models?.current || 'sulvana-2.0'} disabled={!models || busy} onChange={event => void switchModel(event.target.value)}>
             {(models?.models || [{ id: 'sulvana-2.0', label: 'Sulvana 2.0', detail: '', available: true }]).map(choice =>
               <option key={choice.id} value={choice.id} disabled={!choice.available}>{choice.label}{choice.available ? '' : ' (not downloaded)'}</option>)}
@@ -1386,7 +1431,7 @@ export default function DesktopApp() {
         </div>
         {models && <p className="form-note model-note">{models.models.find(m => m.id === (models.current || 'sulvana-2.0'))?.detail}</p>}
         {!isRemote && <div className="form-row stacked">
-          <label htmlFor="setting-project">Coding project folder</label>
+          <label htmlFor="setting-project">{L('Coding project folder', 'ថតគម្រោងកូដ')}</label>
           <div className="project-field">
             <input id="setting-project" type="text" spellCheck={false} placeholder="/home/you/projects/my-app" value={preferences.codeRoot}
               onChange={event => setPreferences(current => ({ ...current, codeRoot: event.target.value.slice(0, 1000) }))} />
@@ -1395,7 +1440,7 @@ export default function DesktopApp() {
         </div>}
       </div>
       <details className="form-details" open={isRemote || undefined}>
-        <summary>Share with a friend</summary>
+        <summary>{L('Share with a friend', 'ចែករំលែកជាមួយមិត្តភក្តិ')}</summary>
       <div className="form-group">
         <div className="form-row stacked">
           <label htmlFor="setting-tunnel">Remote Laptop Tunnel <span>{remoteConfig.tunnel ? 'Connected' : 'Local'}</span></label>
@@ -1418,17 +1463,24 @@ export default function DesktopApp() {
       </details>
       <div className="form-group">
         <div className="form-row">
-          <span id="setting-text-size">Text size</span>
-          <div className="segmented" role="radiogroup" aria-labelledby="setting-text-size">
-            {(['small', 'default', 'large'] as const).map(size => <button type="button" key={size} role="radio" aria-checked={preferences.textSize === size}
-              onClick={() => setPreferences(current => ({ ...current, textSize: size }))}>{size === 'small' ? 'Small' : size === 'default' ? 'Default' : 'Large'}</button>)}
+          <span id="setting-ui-language">{L('Interface language', 'ភាសាកម្មវិធី')}</span>
+          <div className="segmented" role="radiogroup" aria-labelledby="setting-ui-language">
+            {(['km', 'en'] as const).map(language => <button type="button" key={language} role="radio" aria-checked={preferences.uiLanguage === language}
+              onClick={() => setPreferences(current => ({ ...current, uiLanguage: language }))}>{language === 'km' ? 'ខ្មែរ' : 'English'}</button>)}
           </div>
         </div>
         <div className="form-row">
-          <span id="setting-appearance">Appearance</span>
+          <span id="setting-text-size">{L('Text size', 'ទំហំអក្សរ')}</span>
+          <div className="segmented" role="radiogroup" aria-labelledby="setting-text-size">
+            {(['small', 'default', 'large'] as const).map(size => <button type="button" key={size} role="radio" aria-checked={preferences.textSize === size}
+              onClick={() => setPreferences(current => ({ ...current, textSize: size }))}>{size === 'small' ? L('Small', 'តូច') : size === 'default' ? L('Default', 'ធម្មតា') : L('Large', 'ធំ')}</button>)}
+          </div>
+        </div>
+        <div className="form-row">
+          <span id="setting-appearance">{L('Appearance', 'រូបរាង')}</span>
           <div className="segmented" role="radiogroup" aria-labelledby="setting-appearance">
             {(['light', 'dark'] as const).map(theme => <button type="button" key={theme} role="radio" aria-checked={preferences.theme === theme}
-              onClick={() => setPreferences(current => ({ ...current, theme }))}>{theme === 'light' ? 'Light' : 'Dark'}</button>)}
+              onClick={() => setPreferences(current => ({ ...current, theme }))}>{theme === 'light' ? L('Light', 'ភ្លឺ') : L('Dark', 'ងងឹត')}</button>)}
           </div>
         </div>
       </div>
@@ -1437,11 +1489,11 @@ export default function DesktopApp() {
         <div><strong>{modelName} by WKH Labs</strong><span>Wisdom · Khmer · Heritage{baseModel ? ` · built on ${baseModel}` : ''}</span></div>
       </div>
       <div className="modal-actions spread">
-        <button type="button" onClick={() => { setPreferences(current => ({ ...DEFAULT_PREFERENCES, theme: current.theme, translate: current.translate, translateAsked: current.translateAsked })); setCustomLanguage(false); }}>Reset to Defaults</button>
-        <button type="button" className="approve-button" onClick={() => setDialog(null)}>Done</button>
+        <button type="button" onClick={() => { setPreferences(current => ({ ...DEFAULT_PREFERENCES, theme: current.theme, translate: current.translate, translateAsked: current.translateAsked, uiLanguage: current.uiLanguage })); setCustomLanguage(false); }}>{L('Reset to Defaults', 'កំណត់ដើមវិញ')}</button>
+        <button type="button" className="approve-button" onClick={() => setDialog(null)}>{L('Done', 'រួចរាល់')}</button>
       </div>
     </Modal>}
-    {dialog === 'tools' && <Modal title="Tools" onClose={() => setDialog(null)}>
+    {dialog === 'tools' && <Modal title={L('Tools', 'ឧបករណ៍')} onClose={() => setDialog(null)}>
       <p>Sulvana can search local Markdown guides, search the public web when you ask, and run a small set of read only checks on this computer.</p>
       <div className="form-group">
         <div className="form-row"><span>Local documentation</span><em>Available</em></div>
@@ -1452,7 +1504,7 @@ export default function DesktopApp() {
       </div>
       <p className="form-note">With <b>Code</b> on, Sulvana works in the project folder you chose: it reads and searches files on its own, but shows every edit as a diff and every command before it runs. Commands run in a sandbox with no network that can only change the project folder. Each reply's file edits can be undone.</p>
       <p className="form-note">Try <code>/docs your topic</code>, <code>/search your question</code>, or <code>/terminal nvidia-smi</code>. Some extra read only inspections ask for one-time permission and show the exact command. File changes, installs, and arbitrary commands are blocked.</p>
-      <div className="modal-actions"><button type="button" className="approve-button" onClick={() => setDialog(null)}>Done</button></div>
+      <div className="modal-actions"><button type="button" className="approve-button" onClick={() => setDialog(null)}>{L('Done', 'រួចរាល់')}</button></div>
     </Modal>}
     {dialog === 'improve' && improving && <Modal title="Improve this answer" onClose={() => { setDialog(null); setImproving(null); }} className="improve-backdrop">
       <p>Fix spelling, facts or wording, then save. The corrected answer is stored as a training example for the next fine-tune.</p>

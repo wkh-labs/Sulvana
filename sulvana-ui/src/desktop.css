@@ -339,7 +339,7 @@ html[data-text-size="large"] .message-column { zoom: 1.14; }
   .maker { justify-content: center; } .maker > div { display: none; }
   .adapter-chip, .topbar-right .icon-button.plain { display: none; }
   .model-info strong { white-space: nowrap; }
-  .chip-button { font-size: 0; gap: 0; padding: 0 10px; }
+  .shell .chip-button, .shell.ui-km .chip-button { font-size: 0; gap: 0; padding: 0 10px; }
   .suggestions { grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; max-width: 320px; }
   .suggestions button { width: auto; }
   .composer-note { font-size: 10.5px; }
@@ -356,3 +356,13 @@ html[data-text-size="large"] .message-column { zoom: 1.14; }
 .consent-card p { margin: 0 0 12px; font-size: 13px; line-height: 1.5; color: var(--text-secondary, var(--text-primary)); }
 .consent-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 .consent-actions button { border-radius: 12px; padding: 8px 12px; border: 1px solid var(--glass-border); background: var(--glass-strong, var(--glass)); color: var(--text-primary); font-size: 13px; }
+
+/* Khmer script needs a little more size than Latin to stay readable */
+.message.khmer .message-body { font-size: 16px; }
+.shell.ui-km .chip-button, .shell.ui-km .copy-message, .shell.ui-km .sidebar-heading, .shell.ui-km .brand small, .shell.ui-km .composer-note { font-size: 13.5px; }
+.shell.ui-km .empty h1 { font-size: 30px; line-height: 1.5; }
+.shell.ui-km .form-row label, .shell.ui-km .form-row > span { font-size: 14px; }
+
+.copy-message.active { color: var(--accent-text); }
+@keyframes sulvanaSpin { to { transform: rotate(360deg); } }
+.spin { animation: sulvanaSpin 1s linear infinite; }
