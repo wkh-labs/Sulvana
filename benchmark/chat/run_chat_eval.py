@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Ask the running Sulvana app the 24 everyday Khmer questions in prompts.json and save its answers.
 
-    python3 benchmark/chat/run_chat_eval.py <label> [--temperature 0.4] [--translate]
+    python3 benchmark/chat/run_chat_eval.py <label> [--temperature 0.4] [--translate local|google]
 
 Sulvana must be running (http://127.0.0.1:8766). Answers go to runs/chat-eval/<label>.json, for a person
 to read and compare between versions; there is no automatic score. These questions are for evaluation
@@ -20,7 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def ask(prompt: str, temperature: float, translate: bool) -> dict:
+def ask(prompt: str, temperature: float, translate: str) -> dict:
     body = json.dumps({"prompt": prompt, "history": [], "maxTokens": 900, "temperature": temperature,
                        "language": "Auto", "translate": translate}).encode()
     text, events, started = "", [], time.time()
@@ -33,6 +33,10 @@ def ask(prompt: str, temperature: float, translate: bool) -> dict:
                     text += base64.b64decode(data).decode()
                 elif kind == "x":
                     text = ""; events.append("retry")
+                elif kind == "d":
+                    language = json.loads(base64.b64decode(data)).get("model_language")
+                    if language:
+                        events.append(f"model:{language}")
                 elif kind == "s":
                     events.append("sources")
                 elif kind == "e":
@@ -46,7 +50,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("label")
     parser.add_argument("--temperature", type=float, default=0.4)
-    parser.add_argument("--translate", action="store_true", help="turn on the online Khmer translator")
+    parser.add_argument("--translate", choices=["off", "local", "google"], default="off", help="Better Khmer translator")
     args = parser.parse_args()
     prompts = json.loads((Path(__file__).parent / "prompts.json").read_text(encoding="utf-8"))
     out = ROOT / "runs/chat-eval" / f"{args.label}.json"

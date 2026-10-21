@@ -18,9 +18,15 @@ This tool only runs when the user explicitly asks for it, in one of three ways: 
 
 The results Sulvana used are listed under its answer as **Sources**. Clicking a source opens that page in the user's own web browser; Sulvana itself never opens links.
 
-## Better Khmer (online translator, opt-in)
+## Better Khmer (translator)
 
-Off until the user agrees on the home screen or in Settings. When on, a Khmer message is translated to English with Google Translate's public web endpoint, Sulvana answers in English, and the answer is translated back to Khmer a paragraph at a time (code blocks are left as they are). The reply is marked "via Google Translate". The Khmer text therefore leaves the computer. If Google cannot be reached or refuses requests (HTTP 429), Sulvana pauses the translator for 10 minutes and writes the Khmer itself. `/translate <text>` translates one piece of text. `SULVANA_TRANSLATE=0` disables the translator for everyone.
+Sulvana's own written Khmer has mistakes, so for Khmer conversations it can work in English and have its answer translated. Settings → Better Khmer has three choices:
+
+- **This computer** (default): Sulvana translates the user's Khmer question into English itself, answers in English, and NLLB-200 (a translation model running on the CPU, `models/nllb-200-1.3B-ct2-int8`) writes the Khmer a paragraph at a time. Nothing leaves the computer. Replies are marked "translated on this computer".
+- **Google**: Google Translate's public web endpoint translates both ways. Most accurate, but the Khmer messages and replies are sent to Google, so the app asks once on the home screen before using it. Replies are marked "via Google Translate" and the header shows "Google Translate on". If Google refuses requests (HTTP 429) it is left alone for 10 minutes and the local translator takes over.
+- **Off**: Sulvana writes the Khmer itself.
+
+Code blocks are never translated. Questions about Khmer itself (grammar, spelling, word meanings) can be answered less well through English. `/translate <text>` translates one piece of text (with Google only if the user chose Google). `SULVANA_TRANSLATE=0` disables translation for everyone.
 
 A friend using the shared link (share.sh) can chat, but terminal checks and coding mode are only available on the computer running Sulvana.
 

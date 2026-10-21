@@ -10,6 +10,8 @@ Sulvana is a non-commercial project by **WKH Labs** (Wisdom · Khmer · Heritage
   WKH Labs is not affiliated with or endorsed by Xiaomi or Alibaba.
 - **Sulvana v1** was built on [Dolphin 3.0 Llama 3.1 8B](https://huggingface.co/dphn/Dolphin3.0-Llama3.1-8B), based on
   Meta's Llama 3.1 8B, licensed under the Llama 3.1 Community License. Built with Llama.
+- The local Khmer translator is [NLLB-200 distilled 1.3B](https://huggingface.co/facebook/nllb-200-distilled-1.3B) by Meta
+  (CC BY-NC 4.0, non-commercial), in the CTranslate2 conversion [OpenNMT/nllb-200-distilled-1.3B-ct2-int8](https://huggingface.co/OpenNMT/nllb-200-distilled-1.3B-ct2-int8).
 - Image understanding uses Qwen2.5-VL-3B-Instruct (Apache 2.0); image generation uses Z-Image Turbo (see `Z-Image-Turbo.md`).
 
 The licence texts of the base models are distributed with their weights on Hugging Face and must accompany any copy of
@@ -17,7 +19,7 @@ the models or of models derived from them.
 
 ## Online services
 
-- **Better Khmer** (off unless the user turns it on) sends Khmer messages and replies to Google Translate's public web
+- **Better Khmer → Google** (only if the user chooses it) sends Khmer messages and replies to Google Translate's public web
   endpoint (translate.googleapis.com). This is not an official, documented API for apps; Google may limit or change it.
 - **Web search** (only when asked) sends the search query to DuckDuckGo.
 

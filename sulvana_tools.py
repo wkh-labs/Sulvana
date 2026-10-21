@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import subprocess
+import threading
 import time
 import urllib.parse
 import urllib.error
@@ -287,22 +289,36 @@ def web_search(query: str, sources: list | None = None) -> str:
     return "\n".join(f"- {item['title']}\n  {item['url']}\n  {item['snippet']}" for item in results) if results else problem
 
 
-# Khmer translation. Sulvana's own Khmer is weak, so when the online translator is enabled a Khmer message is
-# translated to English, answered in English (the model's strongest language) and the answer translated back.
-# This uses Google Translate's public web endpoint (the one translate.google.com uses; no key, unofficial,
-# may be rate-limited or change) and sends the text to Google, so it is a user setting the app discloses.
+# Khmer translation. Sulvana's own Khmer is weak, so with "Better Khmer" on, Sulvana answers in English and its
+# answer is translated into Khmer. Two translators:
+#  - local: NLLB-200 1.3B (Meta, CC BY-NC 4.0) run on the CPU with CTranslate2. Private, offline, no limits.
+#    Good from English into Khmer; weak from Khmer into English, so the model reads the user's Khmer itself.
+#  - google: Google Translate's public web endpoint (the one translate.google.com uses; no key, unofficial, may be
+#    rate-limited or change). Best quality, but the text is sent to Google, so the app asks first.
 TRANSLATE_URL = "https://translate.googleapis.com/translate_a/single"
+NLLB_DIR = ROOT / "models/nllb-200-1.3B-ct2-int8"
+NLLB_LANGS = {"km": "khm_Khmr", "en": "eng_Latn"}
+KHMER_CHAR = re.compile(r"[\u1780-\u17FF]")
 _CODE = re.compile(r"```[\s\S]*?```|`[^`\n]+`")
-_translations: dict[tuple[str, str], str] = {}
-_translator_paused_until = 0.0   # after "too many requests", leave the service alone for a while
+_translations: dict[tuple[str, str, str], str] = {}
+_translator_paused_until = 0.0   # after "too many requests", leave Google alone for a while
+_nllb: dict = {}
+_nllb_lock = threading.Lock()
 
 
-def translate(text: str, target: str, source: str = "auto") -> str | None:
-    """Translate text with code blocks and inline code left untouched. None when the service cannot be reached."""
+def _remember(key: tuple[str, str, str], value: str) -> str:
+    if len(_translations) > 2000:
+        _translations.clear()
+    _translations[key] = value
+    return value
+
+
+def google_translate(text: str, target: str, source: str = "auto") -> str | None:
+    """Translate with Google, code left untouched. None when Google cannot be reached or refuses."""
     clean = text.strip()
     if not clean:
         return text
-    key = (clean, target)
+    key = (clean, target, "google")
     if key in _translations:
         return _translations[key]
     kept: list[str] = []
@@ -319,7 +335,8 @@ def translate(text: str, target: str, source: str = "auto") -> str | None:
         return None
     query = urllib.parse.urlencode({"client": "gtx", "sl": source, "tl": target, "dt": "t"})
     body = urllib.parse.urlencode({"q": protected}).encode()
-    for attempt in range(2):
+    result = ""
+    for _attempt in range(2):
         try:
             request = urllib.request.Request(f"{TRANSLATE_URL}?{query}", data=body,
                                              headers={"User-Agent": "Mozilla/5.0", "Content-Type": "application/x-www-form-urlencoded"})
@@ -328,13 +345,12 @@ def translate(text: str, target: str, source: str = "auto") -> str | None:
             result = "".join(part[0] for part in data[0] if part and part[0])
             break
         except urllib.error.HTTPError as error:
-            result = ""
             if error.code == 429:
-                # Retrying makes the block last longer; Sulvana answers on its own for the next 10 minutes.
+                # Retrying makes the block last longer; leave Google alone for the next 10 minutes.
                 _translator_paused_until = time.time() + 600
                 break
         except (OSError, ValueError, IndexError, TypeError):
-            result = ""
+            pass
     if not result:
         return None
     for index, block in enumerate(kept):
@@ -342,25 +358,133 @@ def translate(text: str, target: str, source: str = "auto") -> str | None:
     # The translator pads markdown markers with spaces ("** word **", "1 ."); put them back together.
     result = re.sub(r"\*\*\s*([^*\n]+?)\s*\*\*", r"**\1**", result)
     result = re.sub(r"^(\s*)(\d+)\s+\.\s", r"\1\2. ", result, flags=re.M)
-    if len(_translations) > 2000:
-        _translations.clear()
-    _translations[key] = result
-    return result
+    return _remember(key, result)
 
 
-def translate_markdown(text: str, target: str) -> str | None:
+def local_translator_available() -> bool:
+    return (NLLB_DIR / "model.bin").is_file()
+
+
+def _load_nllb() -> dict | None:
+    with _nllb_lock:
+        if not _nllb and local_translator_available():
+            try:
+                import ctranslate2
+                import transformers
+            except ImportError:
+                return None
+            threads = max(1, (os.cpu_count() or 4) // 2)
+            _nllb["model"] = ctranslate2.Translator(str(NLLB_DIR), device="cpu", compute_type="int8", intra_threads=threads)
+            _nllb["tokenizers"] = {code: transformers.AutoTokenizer.from_pretrained(str(NLLB_DIR), src_lang=name)
+                                   for code, name in NLLB_LANGS.items()}
+        return _nllb or None
+
+
+def warm_local_translator() -> None:
+    """Load NLLB in the background so the first translated reply does not wait for it."""
+    if local_translator_available() and not _nllb:
+        threading.Thread(target=_load_nllb, name="nllb-load", daemon=True).start()
+
+
+def _tidy_khmer(text: str) -> str:
+    """NLLB often puts a space between every Khmer word, which Khmer writing does not do."""
+    word_gap = r"(?<=[\u1780-\u17D3\u17D5-\u17FF]) (?=[\u1780-\u17FF])"   # not after ។, which ends a sentence
+    lines = []
+    for line in text.split("\n"):
+        khmer = len(KHMER_CHAR.findall(line))
+        if khmer and len(re.findall(word_gap, line)) / khmer > 0.08:
+            line = re.sub(word_gap, "", line)
+        lines.append(line)
+    return re.sub(r"[ \t]+([,។?!:;)])", r"\1", "\n".join(lines)).replace("( ", "(")
+
+
+def _drop_inventions(source: str, translated: str) -> str:
+    """NLLB sometimes adds bracketed text that is not in the source, like "[Picture on page 12]"."""
+    if "[" not in source:
+        translated = re.sub(r"\s*\[[^\]]{0,80}\]", "", translated)
+    if "(" not in source:
+        translated = re.sub(r"\s*\([^)]{0,80}\)\s*$", "", translated)
+    return translated.strip()
+
+
+def local_translate(text: str, target: str) -> str | None:
+    """Translate with NLLB on this computer, sentence by sentence; code, list markers and blank lines are kept."""
+    clean = text.strip()
+    if not clean:
+        return text
+    key = (clean, target, "local")
+    if key in _translations:
+        return _translations[key]
+    nllb = _load_nllb()
+    if nllb is None or target not in NLLB_LANGS:
+        return None
+    # By majority: an English answer that quotes a Khmer name is still English.
+    source = "km" if len(KHMER_CHAR.findall(clean)) > len(re.findall(r"[A-Za-z]", clean)) else "en"
+    if source == target:
+        return text
+    tokenizer = nllb["tokenizers"][source]
+    # Each line: keep its list marker and inline code; translate the sentences in between.
+    plan: list[list[tuple[bool, str]]] = []
+    pieces: list[str] = []
+    for line in clean.split("\n"):
+        marker = re.match(r"^(\s*(?:[-*+•]|\d+[.)]|#+)\s+)?", line).group(0)
+        body = line[len(marker):].replace("**", "")
+        if source == "en":
+            # NLLB drops the dash in number ranges ("3–6 months" became "36 months").
+            body = re.sub(r"(\d)\s*[–—-]\s*(\d)", r"\1 to \2", body)
+        parts: list[tuple[bool, str]] = [(False, marker)] if marker else []
+        for chunk in re.split(r"(`[^`\n]+`)", body):
+            if chunk.startswith("`") or not re.search(r"[^\W\d_]", chunk):
+                parts.append((False, chunk))
+                continue
+            for sentence in re.split(r"(?<=[.!?។])\s+", chunk.strip()):
+                if sentence:
+                    parts.append((True, sentence))
+                    pieces.append(sentence)
+        plan.append(parts)
+    if pieces:
+        batch = [tokenizer.convert_ids_to_tokens(tokenizer.encode(piece)) for piece in pieces]
+        with _nllb_lock:
+            results = nllb["model"].translate_batch(batch, target_prefix=[[NLLB_LANGS[target]]] * len(batch),
+                                                     beam_size=4, max_decoding_length=512, repetition_penalty=1.1)
+        done = iter(_drop_inventions(piece, tokenizer.decode(tokenizer.convert_tokens_to_ids(result.hypotheses[0][1:]),
+                                                             skip_special_tokens=True))
+                    for piece, result in zip(pieces, results))
+    lines = []
+    for parts in plan:
+        words = [next(done) if translate_it else chunk for translate_it, chunk in parts]
+        lines.append(" ".join(word.strip() for word in words if word.strip()) if len(words) > 1 else "".join(words))
+    result = "\n".join(lines)
+    if target == "km":
+        result = _tidy_khmer(result)
+    return _remember(key, result)
+
+
+def translate(text: str, target: str, engine: str = "google") -> tuple[str | None, str]:
+    """Translate with the chosen engine; Google falls back to the local translator. Returns (text, engine used)."""
+    if engine == "google":
+        result = google_translate(text, target)
+        if result is not None:
+            return result, "google"
+    return local_translate(text, target), "local"
+
+
+def translate_markdown(text: str, target: str, engine: str = "google") -> tuple[str | None, str]:
     """Translate a reply paragraph by paragraph so that fenced code blocks pass through unchanged."""
     out: list[str] = []
+    used = engine
     for part in re.split(r"(```[\s\S]*?```)", text):
         if part.startswith("```") or not part.strip():
             out.append(part)
             continue
-        translated = translate(part, target)
+        translated, by = translate(part, target, engine)
         if translated is None:
-            return None
+            return None, used
+        if by != engine:
+            used = by
         lead, trail = part[:len(part) - len(part.lstrip())], part[len(part.rstrip()):]
         out.append(lead + translated + trail)
-    return "".join(out)
+    return "".join(out), used
 
 
 def run_tool(name: str, arguments: dict, *, allow_web: bool = False,

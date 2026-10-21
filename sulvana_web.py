@@ -380,7 +380,7 @@ def main() -> None:
                 headers = {"Content-Type": content_type, "X-Max-Tokens": str(max_tokens), "X-Temperature": str(temperature), "X-Language": base64.b64encode(language.encode()).decode(),
                            "X-Search": "1" if request.get("search") is True else "0",
                            "X-Reasoning": "1" if request.get("reasoning") is True else "0",
-                           "X-Translate": "1" if request.get("translate") is True else "0",
+                           "X-Translate": request.get("translate") if request.get("translate") in {"google", "local"} else "off",
                            # A friend on the shared link may chat, but not inspect this computer.
                            "X-Remote": "0" if self._is_local() else "1"}
                 if self._is_local():

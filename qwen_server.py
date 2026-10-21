@@ -268,7 +268,7 @@ def main() -> None:
                             "history": history,
                             "search": self.headers.get("X-Search") == "1",
                             "reasoning": self.headers.get("X-Reasoning") == "1",
-                            "translate": self.headers.get("X-Translate") == "1",
+                            "translate": self.headers.get("X-Translate") if self.headers.get("X-Translate") in {"google", "local"} else "",
                             "remote": self.headers.get("X-Remote") != "0",
                             # Coding mode: the project folder the agent may work in (checked by the worker).
                             "code_root": code_root,

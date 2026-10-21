@@ -44,7 +44,7 @@ type Message = {
   /** The user rated or corrected this reply; it was saved as a training example. */
   feedback?: 'good' | 'corrected';
   /** The Khmer was written by the online translator from Sulvana's English answer. */
-  translated?: boolean;
+  translated?: 'google' | 'local';
 };
 type ModelChoice = { id: string; label: string; detail: string; available: boolean };
 type CodeStep = { id: string; tool: string; title: string; status: 'running' | 'done' | 'error' | 'denied'; detail?: string };
@@ -53,10 +53,12 @@ type CodeTask = { task: string; root: string; changed: string[]; undone?: boolea
 /** A web result (url) or a section of a local Markdown note (file). */
 type Source = { title: string; url?: string; file?: string };
 type Conversation = { id: string; title: string; messages: Message[]; updatedAt?: number };
-type Preferences = { temperature: number; maxTokens: number; language: string; theme: 'dark' | 'light'; reasoning: boolean; code: boolean; codeRoot: string; textSize: TextSize; translate: boolean; translateAsked: boolean };
+type Preferences = { temperature: number; maxTokens: number; language: string; theme: 'dark' | 'light'; reasoning: boolean; code: boolean; codeRoot: string; textSize: TextSize; translate: Translator; translateAsked: boolean };
+/** Better Khmer: who writes the Khmer. 'local' = NLLB on this computer, 'google' = Google Translate (online). */
+type Translator = 'off' | 'local' | 'google';
 type EngineStatus = { state: string; detail: string; approval?: ApprovalRequest | null };
 type Dialog = 'settings' | 'tools' | 'delete' | 'improve' | null;
-type StreamPayload = { prompt: string; image?: string; history: { role: string; content: string }[]; maxTokens: number; temperature: number; language: string; search?: boolean; reasoning?: boolean; translate?: boolean; code?: { root: string } };
+type StreamPayload = { prompt: string; image?: string; history: { role: string; content: string }[]; maxTokens: number; temperature: number; language: string; search?: boolean; reasoning?: boolean; translate?: Translator; code?: { root: string } };
 type ApprovalRequest = { id: string; command: string; reason: string; timeout_seconds: number; kind?: 'read' | 'edit' | 'write' | 'command'; title?: string; diff?: string; allow_all?: boolean };
 type Attachment = { name: string; data: string };
 type Notice = { kind: 'error' | 'info'; text: string };
@@ -68,7 +70,7 @@ const LANGUAGES = ['Auto', 'ខ្មែរ (Khmer)', 'English', '中文 (Chines
 const TOKEN_LIMITS = [512, 1024, 2048, 4096, 8192];
 const LENGTH_NAMES: Record<number, string> = { 512: 'Short', 1024: 'Medium', 2048: 'Long', 4096: 'Very long', 8192: 'Longest' };
 type TextSize = 'small' | 'default' | 'large';
-const DEFAULT_PREFERENCES: Preferences = { temperature: 0.4, maxTokens: 2048, language: 'Auto', theme: 'dark', reasoning: false, code: false, codeRoot: '', textSize: 'default', translate: false, translateAsked: false };
+const DEFAULT_PREFERENCES: Preferences = { temperature: 0.4, maxTokens: 2048, language: 'Auto', theme: 'dark', reasoning: false, code: false, codeRoot: '', textSize: 'default', translate: 'local', translateAsked: false };
 const KHMER = /[\u1780-\u17FF]/;
 const NOTE_TEXT: Record<Note, string> = {
   error: 'Something went wrong.',
@@ -127,7 +129,7 @@ function cleanMessage(raw: unknown): Message | null {
   if (item.plain === true) message.plain = true;
   if (typeof item.reasoning === 'string' && item.reasoning) message.reasoning = item.reasoning;
   if (item.cut === true) message.cut = true;
-  if (item.translated === true) message.translated = true;
+  if (item.translated === 'google' || item.translated === 'local') message.translated = item.translated;
   if (item.feedback === 'good' || item.feedback === 'corrected') message.feedback = item.feedback;
   if (Array.isArray(item.sources)) message.sources = cleanSources(item.sources);
   if (Array.isArray(item.parts)) {
@@ -161,8 +163,9 @@ function cleanPreferences(raw: unknown): Preferences {
     code: saved.code === true,
     codeRoot: typeof saved.codeRoot === 'string' ? saved.codeRoot.slice(0, 1000) : '',
     textSize: saved.textSize === 'small' || saved.textSize === 'large' ? saved.textSize : 'default',
-    // The online translator sends text to Google, so it is only on after the user said yes.
-    translate: saved.translate === true && saved.translateAsked === true,
+    // Google only after the user said yes (it sends their text to Google); the local translator needs no consent.
+    translate: saved.translate === 'off' || saved.translate === 'local' ? saved.translate
+      : (saved.translate === 'google' || (saved.translate as unknown) === true) && saved.translateAsked === true ? 'google' : 'local',
     translateAsked: saved.translateAsked === true,
   };
 }
@@ -1007,7 +1010,7 @@ export default function DesktopApp() {
       language: preferences.language.trim() || 'Auto',
       search: (searchOn && kind === 'chat' && !coding) || undefined,
       reasoning: (preferences.reasoning && kind === 'chat') || undefined,
-      translate: (preferences.translate && kind === 'chat' && !coding) || undefined,
+      translate: kind === 'chat' && !coding && preferences.translate !== 'off' ? preferences.translate : undefined,
       code: coding ? { root: preferences.codeRoot } : undefined,
     };
     setConversations(previous => previous.map(chat => chat.id === chatId
@@ -1032,7 +1035,7 @@ export default function DesktopApp() {
     let cut = false;
     let parts: Part[] = [];
     let codeTask: CodeTask | undefined;
-    let translated = false;
+    let translated: 'google' | 'local' | undefined;
     // In coding mode the reply text is the prose between steps, joined.
     const prose = () => parts.flatMap(part => part.kind === 'text' && part.text.trim() ? [part.text.trim()] : []).join('\n\n');
     try {
@@ -1094,12 +1097,12 @@ export default function DesktopApp() {
           if (metrics.code && typeof metrics.code.task === 'string') codeTask = metrics.code;
           if (metrics.loop_guard_triggered) setNotice({ kind: 'info', text: 'Sulvana stopped a reply that had started repeating itself.' });
           if (typeof metrics.clean_reply === 'string') reply = metrics.clean_reply;
-          translated = metrics.translated === true;
+          translated = metrics.translated === 'google' || metrics.translated === 'local' ? metrics.translated : undefined;
         }
         updateMessage(chatId, assistant.id, message => ({ ...message, text: reply, reasoning: thoughts || undefined, sources: sources.length ? sources : undefined, image: imageUrl || undefined, parts: parts.length ? parts : undefined, activity: activity || message.activity }));
       });
       updateMessage(chatId, assistant.id, message => ({
-        ...message, text: reply, reasoning: thoughts || undefined, sources: sources.length ? sources : undefined, cut: cut || undefined, translated: translated || undefined,
+        ...message, text: reply, reasoning: thoughts || undefined, sources: sources.length ? sources : undefined, cut: cut || undefined, translated,
         image: imageUrl || undefined, pending: false, activity: undefined, parts: parts.length ? parts : undefined, code: codeTask,
         note: stopped ? 'stopped' : reply || parts.length ? undefined : 'empty',
       }));
@@ -1192,7 +1195,7 @@ export default function DesktopApp() {
           <button type="button" className="icon-button drawer-toggle" aria-label="Show conversations" title="Conversations" onClick={() => setDrawerOpen(true)}><Menu size={17} /></button>
           <strong>{modelName}</strong>{baseModel && <span className="model-chip" title={`${modelName} is built on ${baseModel} and runs on this computer.`}>{baseModel}</span>}
           {adapter && <span className="model-chip adapter-chip" title={`WKH Labs Khmer fine-tune loaded on top of ${baseModel || 'the base model'} (${adapter.split('+').join(', ')})`}>Khmer-tuned</span>}
-          {preferences.translate && <span className="model-chip online-chip" title="Better Khmer is on: Khmer messages and replies go through Google Translate. Turn it off in Settings to keep everything on this computer."><Globe size={11} /> Google Translate on</span>}
+          {preferences.translate === 'google' && <span className="model-chip online-chip" title="Better Khmer uses Google Translate: Khmer messages and replies are sent to Google. Choose 'This computer' in Settings to keep everything local."><Globe size={11} /> Google Translate on</span>}
         </div>
         <div className="topbar-right">
           <span className={'status-dot ' + (ready ? 'ready' : engineDown ? 'bad' : 'busy')} aria-hidden="true" title={statusText} />
@@ -1213,10 +1216,10 @@ export default function DesktopApp() {
           <p>Ask anything, attach an image, or type <code>/image</code> to create one.</p>
           {!preferences.translateAsked && <div className="consent-card" role="region" aria-label="Better Khmer">
             <strong lang="km">ចង់បានភាសាខ្មែរល្អជាងនេះទេ?</strong>
-            <p>Sulvana's own Khmer has spelling mistakes. With <b>Better Khmer</b>, Sulvana thinks in English and Google Translate writes the Khmer. Your Khmer messages and Sulvana's replies are then sent to Google. You can change this any time in Settings.</p>
+            <p>Sulvana thinks in English and a translator on this computer writes the Khmer. For the most accurate Khmer you can use <b>Google Translate</b> instead, but your Khmer messages and Sulvana's replies are then sent to Google. You can change this any time in Settings.</p>
             <div className="consent-actions">
-              <button type="button" onClick={() => setPreferences(current => ({ ...current, translate: false, translateAsked: true }))}>Keep everything on this computer</button>
-              <button type="button" className="approve-button" onClick={() => setPreferences(current => ({ ...current, translate: true, translateAsked: true }))}>Use Better Khmer</button>
+              <button type="button" onClick={() => setPreferences(current => ({ ...current, translate: 'local', translateAsked: true }))}>Keep it on this computer</button>
+              <button type="button" className="approve-button" onClick={() => setPreferences(current => ({ ...current, translate: 'google', translateAsked: true }))}>Use Google Translate</button>
             </div>
           </div>}
           <div className="suggestions">
@@ -1232,7 +1235,7 @@ export default function DesktopApp() {
             const failed = message.note === 'error' || message.note === 'empty' || message.note === 'interrupted';
             return <article className={'message ' + message.role + (failed ? ' failed' : '') + (KHMER.test(message.text) ? ' khmer' : '')} key={message.id} aria-busy={message.pending || undefined}>
               <div className={'message-name' + (message.role === 'user' ? ' visually-hidden' : '')}>{message.role === 'user' ? 'You' : 'Sulvana'}{message.pending ? <span className="thinking">working</span> : message.note === 'stopped' && message.text && message.text !== NOTE_TEXT.stopped ? <span className="thinking">stopped early</span>
-                : message.translated ? <span className="thinking" title="Sulvana answered in English and Google Translate wrote this Khmer (Settings → Better Khmer)">via Google Translate</span> : null}</div>
+                : message.translated ? <span className="thinking" title={message.translated === 'google' ? 'Sulvana answered in English and Google Translate wrote this Khmer (Settings → Better Khmer)' : 'Sulvana answered in English and the translator on this computer wrote this Khmer (Settings → Better Khmer)'}>{message.translated === 'google' ? 'via Google Translate' : 'translated on this computer'}</span> : null}</div>
               {message.attachment && <div className="attachment-label"><ImagePlus size={14} />{message.attachment}</div>}
               {message.reasoning && <Reasoning text={message.reasoning} live={!!message.pending && !message.text} />}
               {message.note === 'error' ? <div className="message-body message-problem" dir="auto"><TriangleAlert size={15} aria-hidden="true" /><span>{message.text.replace(/^Error: /, '') || NOTE_TEXT.error}</span></div>
@@ -1349,14 +1352,16 @@ export default function DesktopApp() {
         <div className="form-row">
           <span id="setting-translate">Better Khmer</span>
           <div className="segmented" role="radiogroup" aria-labelledby="setting-translate">
-            {([true, false] as const).map(on => <button type="button" key={String(on)} role="radio" aria-checked={preferences.translate === on}
-              onClick={() => setPreferences(current => ({ ...current, translate: on, translateAsked: true }))}>{on ? 'On' : 'Off'}</button>)}
+            {(['off', 'local', 'google'] as const).map(choice => <button type="button" key={choice} role="radio" aria-checked={preferences.translate === choice}
+              onClick={() => setPreferences(current => ({ ...current, translate: choice, translateAsked: true }))}>{choice === 'off' ? 'Off' : choice === 'local' ? 'This computer' : 'Google'}</button>)}
           </div>
         </div>
       </div>
-      <p className="form-note">{preferences.translate
-        ? 'Sulvana thinks in English and Google Translate writes the Khmer, which is much more accurate. Your Khmer messages and Sulvana\'s replies are sent to Google. When Google cannot be reached, Sulvana writes the Khmer itself.'
-        : 'Everything stays on this computer. Sulvana writes Khmer itself, with more mistakes.'}</p>
+      <p className="form-note">{preferences.translate === 'google'
+        ? 'Most accurate. Sulvana thinks in English and Google Translate writes the Khmer, so your Khmer messages and Sulvana\'s replies are sent to Google. If Google cannot be reached, the translator on this computer takes over.'
+        : preferences.translate === 'local'
+          ? 'Private. Sulvana thinks in English and a translator on this computer (NLLB) writes the Khmer. Nothing is sent online.'
+          : 'Sulvana writes Khmer itself. Private, but with more spelling and grammar mistakes.'}</p>
       <div className="form-group">
         <div className="form-row stacked">
           <label htmlFor="setting-creativity">Creativity <span>{preferences.temperature <= 0.5 ? 'Precise' : preferences.temperature <= 0.9 ? 'Balanced' : 'Creative'} · {preferences.temperature.toFixed(1)}</span></label>
@@ -1441,7 +1446,7 @@ export default function DesktopApp() {
       <div className="form-group">
         <div className="form-row"><span>Local documentation</span><em>Available</em></div>
         <div className="form-row"><span>Public web search</span><em className="online">Online · when asked</em></div>
-        <div className="form-row"><span>Online Khmer translator (Google)</span><em className={preferences.translate ? 'online' : ''}>{preferences.translate ? 'Online · on' : 'Off'}</em></div>
+        <div className="form-row"><span>Khmer translator</span><em className={preferences.translate === 'google' ? 'online' : ''}>{preferences.translate === 'google' ? 'Online · Google' : preferences.translate === 'local' ? 'On this computer' : 'Off'}</em></div>
         <div className="form-row"><span>Read only terminal checks</span><em>Limited</em></div>
         <div className="form-row"><span>Coding mode (one project folder)</span><em>Asks first</em></div>
       </div>
