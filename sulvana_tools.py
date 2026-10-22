@@ -115,7 +115,7 @@ def note_passages(query: str, budget: int = NOTES_BUDGET, limit: int = 5) -> lis
     scored: list[tuple[float, str, str, str]] = []
     for path in sorted(NOTES_ROOT.rglob("*.md")):
         # The glossary is used by the Khmer tools directly; as a "source" it is only noise.
-        if (path.name in {"README.md", "khmer-english-glossary.md"} or any(part.startswith(".") for part in path.relative_to(NOTES_ROOT).parts)
+        if (path.name in {"README.md", "INDEX.md", "khmer-english-glossary.md"} or any(part.startswith(".") for part in path.relative_to(NOTES_ROOT).parts)
                 or path.stat().st_size > 2_000_000):
             continue
         try:
@@ -142,6 +142,61 @@ def note_passages(query: str, budget: int = NOTES_BUDGET, limit: int = 5) -> lis
             break
         chosen.append({"file": file, "title": title, "text": body})
         used += len(body)
+    return chosen
+
+
+def _note_files() -> list[Path]:
+    if not NOTES_ROOT.is_dir():
+        return []
+    return [path for path in sorted(NOTES_ROOT.rglob("*.md"))
+            if path.name not in {"README.md", "INDEX.md"} and path.stat().st_size <= 2_000_000
+            and not any(part.startswith(".") for part in path.relative_to(NOTES_ROOT).parts)]
+
+
+def notes_index(limit: int = 6000) -> str:
+    """The catalogue the model reads before every question: each note file with its description from
+    knowledge/INDEX.md and its section titles, so it can choose what to read."""
+    described = {}
+    index = NOTES_ROOT / "INDEX.md"
+    if index.is_file():
+        for name, description in re.findall(r"^-\s*([\w./-]+\.md)\s*:\s*(.+)$", index.read_text(encoding="utf-8"), re.M):
+            described[name] = description.strip()
+    lines = []
+    for path in _note_files():
+        name = str(path.relative_to(NOTES_ROOT))
+        try:
+            titles = [title.split(" · ")[0].strip() for title, _ in _note_sections(path)][:12]
+        except OSError:
+            continue
+        lines.append(f"- {name}: {described.get(name, '')}".rstrip(": ") + (f" Sections: {'; '.join(titles)}." if titles else ""))
+    return "\n".join(lines)[:limit]
+
+
+def note_files(names: list[str], query: str, budget: int = NOTES_BUDGET) -> list[dict[str, str]]:
+    """Sections from the note files the model chose. A short file is used whole; from a long one, the sections that
+    share the most words with the question come first."""
+    wanted = _note_terms(query)
+    known = {str(path.relative_to(NOTES_ROOT)): path for path in _note_files()}
+    chosen, used = [], 0
+    share = budget // max(1, len(names))
+    for name in names:
+        path = known.get(name.strip())
+        if path is None:
+            continue
+        try:
+            sections = _note_sections(path)
+        except OSError:
+            continue
+        if sum(len(body) for _, body in sections) > share:
+            # A long file: only the (up to three) sections that share words with the question, best first.
+            ranked = sorted(((len(wanted & _note_terms(title + " " + body)), title, body) for title, body in sections), reverse=True)
+            sections = [(title, body) for score, title, body in ranked if score > 0][:3] or [sections[0]]
+        taken = 0
+        for title, body in sections:
+            if taken + len(body) > share or used + len(body) > budget:
+                continue
+            chosen.append({"file": str(path.relative_to(ROOT)), "title": title, "text": body})
+            taken += len(body); used += len(body)
     return chosen
 
 

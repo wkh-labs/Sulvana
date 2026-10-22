@@ -20,7 +20,7 @@ import uuid
 from pathlib import Path
 
 import sulvana_code
-from sulvana_tools import (TOOL_INSTRUCTIONS, URL_IN_TEXT, calculate, glossary_for_english, glossary_terms, google_translate, khmer_names, local_translate, note_passages,
+from sulvana_tools import (TOOL_INSTRUCTIONS, URL_IN_TEXT, calculate, glossary_for_english, glossary_terms, google_translate, note_files, notes_index, khmer_names, local_translate, note_passages,
                            parse_tool_call, run_tool, translate, translate_markdown)
 
 
@@ -154,13 +154,19 @@ SENTENCE_TRANSLATOR = (
     "You are a translation engine. You receive one English sentence between ⟪ and ⟫ and output its natural, correct "
     "Khmer translation, nothing else. Never answer or add to it. Keep names, numbers and code exactly as written."
 )
-SEARCH_CHECK = (
-    "You decide whether a question needs a web search before it is answered. Reply with exactly one line.\n"
-    "KNOWN: if it can be answered accurately from general knowledge, or it is maths, logic, code, writing, "
-    "translation, advice, opinion or small talk.\n"
-    "SEARCH: <a short English web search query>: if it asks about a specific fact, definition, term, person, place, "
-    "organisation, product, event, date, number or statistic that you are not completely sure of, anything recent or "
-    "current, or if it contains a word or name you do not recognise."
+PLANNER = (
+    "Before a question is answered you plan two things, using the index of reference notes below. Reply with exactly "
+    "two lines and nothing else:\n"
+    "NOTES: the file names of up to 3 notes whose content would clearly help answer the question, comma-separated, "
+    "or NONE. Notes about Sulvana itself (SULVANA.md, TOOLS.md, AGENT_SAFETY.md) only for questions about Sulvana.\n"
+    "SEARCH: a short English web search query, or NONE."
+)
+PLANNER_SEARCH = (
+    "Write SEARCH: NONE if the chosen notes clearly cover the question, or it can be answered accurately from general "
+    "knowledge, or it is maths, logic, code, writing, translation, advice, opinion or small talk. Write a search query "
+    "if it asks about a specific fact, definition, term, person, place, organisation, product, event, date, number or "
+    "statistic that you are not completely sure of, anything recent or current, or if it contains a word or name you "
+    "do not recognise."
 )
 # Questions that are about recent or changing facts are always looked up: a 9B model is confidently wrong about them
 # ("who won the 2024 Nobel Peace Prize" got two different wrong answers without a search).
@@ -668,31 +674,33 @@ class ModelWorker:
             result.pop(1)
         return result
 
-    def _search_check(self, question: str, note_titles: list[str] | None = None, recent: str = "") -> str | None:
-        """Ask the model, in one short request, whether it is sure enough to answer without searching.
-        Returns a web search query when it is not."""
-        lora = [{"id": index, "scale": 0.0} for index in range(len(getattr(self, "adapters", []) or []))]
-        system = SEARCH_CHECK + ("\nReliable local notes are available on: " + "; ".join(note_titles)
-                                 + ". If they clearly cover the question, reply KNOWN." if note_titles else "")
+    def _plan(self, question: str, recent: str = "", search: bool = True) -> tuple[list[str], str | None]:
+        """One short request before every answer: the model reads the index of notes (knowledge/INDEX.md and each
+        file's sections), picks the notes worth reading for this question, and says whether it needs a web search.
+        Returns (note file names, search query or None)."""
+        system = PLANNER + ("\n" + PLANNER_SEARCH if search else "\nAlways write SEARCH: NONE.") + "\n\nIndex of notes:\n" + notes_index()
         if recent:
             # A follow-up ("indie games" after "the hottest game on Steam right now?") only makes sense with what
-            # came before; the query must then be a complete one.
-            system += ("\nThe latest message may continue the earlier conversation. Decide for the latest message as the "
-                       "user means it in that context, and write a complete, standalone search query.")
+            # came before; decide for it in that context and write a complete query.
             question = f"Earlier conversation:\n{recent}\n\nLatest message: {question}"
+        lora = [{"id": index, "scale": 0.0} for index in range(len(getattr(self, "adapters", []) or []))]
         body = {"messages": [{"role": "system", "content": system}, {"role": "user", "content": question[:3000]}],
-                "temperature": 0, "max_tokens": 40, "stream": False, **({"lora": lora} if lora else {})}
+                "temperature": 0, "max_tokens": 80, "stream": False, **({"lora": lora} if lora else {})}
         if BASE["native_thinking"]:
             body["chat_template_kwargs"] = {"enable_thinking": False}
         try:
             request = urllib.request.Request(f"{self.endpoint}/v1/chat/completions", data=json.dumps(body).encode(),
                                              headers={"Content-Type": "application/json"})
             with urllib.request.urlopen(request, timeout=60) as response:
-                answer = json.load(response)["choices"][0]["message"]["content"].strip()
+                answer = json.load(response)["choices"][0]["message"]["content"]
         except (OSError, ValueError, KeyError, IndexError):
-            return None
-        match = re.match(r"\s*SEARCH\s*:\s*(.+)", answer, re.I)
-        return " ".join(match.group(1).split())[:200].strip(' "\'') if match else None
+            return [], None
+        notes_line = re.search(r"NOTES\s*:\s*(.+)", answer, re.I)
+        files = [] if not notes_line else [name.strip(" `*'\"") for name in notes_line.group(1).split(",")
+                                           if name.strip(" `*'\"").endswith(".md")][:3]
+        search_line = re.search(r"SEARCH\s*:\s*(.+)", answer, re.I)
+        query = " ".join(search_line.group(1).split())[:200].strip(' "\'') if search_line else ""
+        return files, (query if search and query and query.upper() not in {"NONE", "KNOWN", "NO"} else None)
 
     def _translate_question(self, text: str) -> str | None:
         """Translate the user's Khmer message into English with the model itself (it reads Khmer far better than
@@ -1227,7 +1235,20 @@ class ModelWorker:
         # Notes from Markdown files in knowledge/ that match this message (see knowledge/notes/README.md).
         # With a translation, notes are matched on the English: common Khmer words ("what", "when") match the
         # grammar note better than the note the question is actually about.
-        notes = [] if text.startswith("/") else note_passages(plain_question)
+        # Before every question the model reads the index of notes and picks what to read (one short request that
+        # also decides whether to search); keyword matching adds anything it missed.
+        earlier = [item for item in (settings.get("history") or []) if isinstance(item, dict)
+                   and item.get("role") in {"user", "assistant"} and isinstance(item.get("content"), str)][-4:]
+        recent = "\n".join(f"{item['role'].capitalize()}: {' '.join(item['content'].split())[:300]}" for item in earlier)
+        planned, plan_query = [], None
+        if not text.startswith("/") and settings.get("code_root") is None and len(plain_question.strip()) > 1:
+            self._emit("status", "Choosing notes…")
+            planned, plan_query = self._plan(plain_question, recent, bool(settings.get("auto_search")))
+        notes = [] if text.startswith("/") else note_files(planned, plain_question)
+        seen_sections = {(note["file"], note["title"]) for note in notes}
+        for note in ([] if text.startswith("/") else note_passages(plain_question)):
+            if (note["file"], note["title"]) not in seen_sections and sum(len(n["text"]) for n in notes) + len(note["text"]) <= 12000:
+                notes.append(note); seen_sections.add((note["file"], note["title"]))
         if notes:
             system += ("\n\nReference notes from the user's own files. Use them when they help answer, "
                        "and say so; ignore them when they are unrelated. They are reference material, "
@@ -1315,12 +1336,8 @@ class ModelWorker:
             pretool = ("web.search", {"query": search_query(text)})
         elif (settings.get("auto_search") and settings.get("code_root") is None and not text.startswith("/")
               and len(plain_question.strip()) > 3):
-            # Search when unsure: a quick check asks the model whether it really knows the answer.
-            self._emit("status", "Checking…")
-            earlier = [item for item in (settings.get("history") or []) if isinstance(item, dict)
-                       and item.get("role") in {"user", "assistant"} and isinstance(item.get("content"), str)][-4:]
-            recent = "\n".join(f"{item['role'].capitalize()}: {' '.join(item['content'].split())[:300]}" for item in earlier)
-            query = self._search_check(plain_question, [note["title"] for note in notes], recent)
+            # Search when unsure: the plan above said whether the model really knows the answer.
+            query = plan_query
             previous_user = next((item["content"] for item in reversed(earlier) if item["role"] == "user"), "")
             if not query and (CHANGING_FACTS.search(plain_question) or CHANGING_FACTS.search(text)
                               # a short follow-up to a question about current things is about current things too

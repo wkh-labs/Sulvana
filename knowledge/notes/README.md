@@ -2,7 +2,9 @@
 
 Put Markdown (`.md`) files in this folder to give Sulvana information it does not know: facts about you, your school or work, Khmer vocabulary and spellings you want it to use, how you like answers written, project details, and so on.
 
-Before every reply, Sulvana looks through all Markdown files in `knowledge/` (including this folder and any subfolders) and adds the up-to-five sections that best match your message to its context. The notes it used appear as **Sources** under the answer. Changes are picked up on the next message; nothing needs restarting.
+Before every reply, Sulvana reads an index of all Markdown files in `knowledge/` (including this folder and any subfolders): the description of each file in `knowledge/INDEX.md` plus its section titles. It picks up to three files that help with your message and reads their relevant sections; keyword matching adds any closely matching section it missed. The notes it used appear as **Sources** under the answer. Changes are picked up on the next message; nothing needs restarting.
+
+When you add a note, also add one line to `knowledge/INDEX.md` saying what it is for and when to use it (`- my-note.md: …`). That description is what Sulvana reads when deciding whether to open the note.
 
 ## Writing notes that work well
 
