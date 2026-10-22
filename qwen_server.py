@@ -36,6 +36,14 @@ def image_prompt(text: str) -> str | None:
     return description or None
 
 
+def decoded_json(value: str | None) -> dict:
+    try:
+        data = json.loads(base64.b64decode(value or "").decode("utf-8")) if value else {}
+    except (ValueError, UnicodeDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def encoded(value: str) -> str:
     return base64.b64encode(value.encode("utf-8")).decode("ascii")
 
@@ -271,6 +279,7 @@ def main() -> None:
                             "translate": self.headers.get("X-Translate") if self.headers.get("X-Translate") in {"google", "local"} else "",
                             "remote": self.headers.get("X-Remote") != "0",
                             "auto_search": self.headers.get("X-Auto-Search") == "1",
+                            "profile": decoded_json(self.headers.get("X-Profile")),
                             # Coding mode: the project folder the agent may work in (checked by the worker).
                             "code_root": code_root,
                         },

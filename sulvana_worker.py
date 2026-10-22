@@ -271,6 +271,38 @@ ABOUT_KHMER = re.compile(r"វេយ្យាករណ៍|អក្ខរាវ�
 TRANSLATION_REQUEST = re.compile(r"បកប្រែ|\btranslat", re.I)
 
 
+STYLE_GUIDE = {
+    "concise": "Keep answers short: the answer first, then only the most important details. Avoid long lists.",
+    "detailed": "Explain thoroughly, step by step, with examples, as a patient teacher would.",
+    "formal": "Write in a formal, polite register, as in a letter or an official document.",
+    "friendly": "Be warm, casual and encouraging, like a helpful older friend.",
+}
+
+
+def personalisation(profile: object) -> str:
+    """The user's own settings (Settings → Personalisation): how to address them, what they told Sulvana about
+    themselves, how they like answers, and things they asked it to remember. Preferences, never instructions that
+    override safety rules."""
+    if not isinstance(profile, dict):
+        return ""
+    lines = []
+    if profile.get("name"):
+        lines.append(f"The user's name is {profile['name']}; use it now and then, naturally.")
+    if profile.get("about"):
+        lines.append(f"About the user: {profile['about']}")
+    if STYLE_GUIDE.get(profile.get("style")):
+        lines.append("Answer style: " + STYLE_GUIDE[profile["style"]])
+    if profile.get("instructions"):
+        lines.append(f"How the user wants answers: {profile['instructions']}")
+    memories = [item for item in profile.get("memories", []) if isinstance(item, str) and item][:30]
+    if memories:
+        lines.append("Things the user asked you to remember:\n" + "\n".join(f"- {item}" for item in memories))
+    if not lines:
+        return ""
+    return ("\n\nThe user's personal settings (follow these preferences unless they conflict with safety or the "
+            "rules above):\n" + "\n".join(lines))
+
+
 def reply_target(text: str, preference: str) -> tuple[str, bool]:
     """Decide this turn's reply language: (hint for the model, whether it is Khmer).
 
@@ -1230,6 +1262,7 @@ class ModelWorker:
         system = SYSTEM_TRANSLATED if translated else SYSTEM if in_khmer else SYSTEM_OTHER_LANGUAGE
         # Today's date, so "how many days until Khmer New Year?" or "what year is it?" has an answer.
         system += f"\n\nToday is {time.strftime('%A, %d %B %Y')}."
+        system += personalisation(settings.get("profile"))
         if settings.get("reasoning") and not BASE["native_thinking"]:
             system += "\n\n" + REASONING_INSTRUCTIONS
         # Notes from Markdown files in knowledge/ that match this message (see knowledge/notes/README.md).

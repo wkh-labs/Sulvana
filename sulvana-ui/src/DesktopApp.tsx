@@ -53,12 +53,16 @@ type CodeTask = { task: string; root: string; changed: string[]; undone?: boolea
 /** A web result (url) or a section of a local Markdown note (file). */
 type Source = { title: string; url?: string; file?: string };
 type Conversation = { id: string; title: string; messages: Message[]; updatedAt?: number };
-type Preferences = { temperature: number; maxTokens: number; language: string; theme: 'dark' | 'light'; reasoning: boolean; code: boolean; codeRoot: string; textSize: TextSize; translate: Translator; translateAsked: boolean; uiLanguage: 'km' | 'en'; autoSearch: boolean };
+type Preferences = { temperature: number; maxTokens: number; language: string; theme: 'dark' | 'light'; reasoning: boolean; code: boolean; codeRoot: string; textSize: TextSize; translate: Translator; translateAsked: boolean; uiLanguage: 'km' | 'en'; autoSearch: boolean;
+  /** Personalisation, like Claude's and ChatGPT's: how to address the user, about them, answer style, memories. */
+  userName: string; aboutUser: string; instructions: string; responseStyle: ResponseStyle; memories: string[] };
+type ResponseStyle = 'normal' | 'concise' | 'detailed' | 'formal' | 'friendly';
+const RESPONSE_STYLES: ResponseStyle[] = ['normal', 'concise', 'detailed', 'formal', 'friendly'];
 /** Better Khmer: who writes the Khmer. 'local' = NLLB on this computer, 'google' = Google Translate (online). */
 type Translator = 'off' | 'local' | 'google';
 type EngineStatus = { state: string; detail: string; approval?: ApprovalRequest | null };
 type Dialog = 'settings' | 'tools' | 'delete' | 'improve' | null;
-type StreamPayload = { prompt: string; image?: string; history: { role: string; content: string }[]; maxTokens: number; temperature: number; language: string; search?: boolean; reasoning?: boolean; translate?: Translator; autoSearch?: boolean; code?: { root: string } };
+type StreamPayload = { prompt: string; image?: string; history: { role: string; content: string }[]; maxTokens: number; temperature: number; language: string; search?: boolean; reasoning?: boolean; translate?: Translator; autoSearch?: boolean; profile?: { name: string; about: string; instructions: string; style: ResponseStyle; memories: string[] }; code?: { root: string } };
 type ApprovalRequest = { id: string; command: string; reason: string; timeout_seconds: number; kind?: 'read' | 'edit' | 'write' | 'command'; title?: string; diff?: string; allow_all?: boolean };
 type Attachment = { name: string; data: string };
 type Notice = { kind: 'error' | 'info'; text: string };
@@ -71,7 +75,8 @@ const TOKEN_LIMITS = [512, 1024, 2048, 4096, 8192];
 const LENGTH_NAMES: Record<number, string> = { 512: 'Short', 1024: 'Medium', 2048: 'Long', 4096: 'Very long', 8192: 'Longest' };
 const LENGTH_NAMES_KM: Record<number, string> = { 512: 'ខ្លី', 1024: 'មធ្យម', 2048: 'វែង', 4096: 'វែងណាស់', 8192: 'វែងបំផុត' };
 type TextSize = 'small' | 'default' | 'large';
-const DEFAULT_PREFERENCES: Preferences = { temperature: 0.4, maxTokens: 2048, language: 'Auto', theme: 'dark', reasoning: false, code: false, codeRoot: '', textSize: 'default', translate: 'local', translateAsked: false, uiLanguage: 'km', autoSearch: true };
+const DEFAULT_PREFERENCES: Preferences = { temperature: 0.4, maxTokens: 2048, language: 'Auto', theme: 'dark', reasoning: false, code: false, codeRoot: '', textSize: 'default', translate: 'local', translateAsked: false, uiLanguage: 'km', autoSearch: true,
+  userName: '', aboutUser: '', instructions: '', responseStyle: 'normal', memories: [] };
 const KHMER = /[\u1780-\u17FF]/;
 const NOTE_TEXT: Record<Note, string> = {
   error: 'Something went wrong.',
@@ -170,6 +175,11 @@ function cleanPreferences(raw: unknown): Preferences {
     translateAsked: saved.translateAsked === true,
     uiLanguage: saved.uiLanguage === 'en' ? 'en' : 'km',
     autoSearch: saved.autoSearch !== false,
+    userName: typeof saved.userName === 'string' ? saved.userName.slice(0, 60) : '',
+    aboutUser: typeof saved.aboutUser === 'string' ? saved.aboutUser.slice(0, 600) : '',
+    instructions: typeof saved.instructions === 'string' ? saved.instructions.slice(0, 1500) : '',
+    responseStyle: RESPONSE_STYLES.includes(saved.responseStyle as ResponseStyle) ? saved.responseStyle as ResponseStyle : 'normal',
+    memories: Array.isArray(saved.memories) ? saved.memories.filter((item): item is string => typeof item === 'string' && !!item.trim()).map(item => item.slice(0, 200)).slice(0, 30) : [],
   };
 }
 
@@ -1018,6 +1028,14 @@ export default function DesktopApp() {
       return;
     }
     if (/^\/image\s*$/i.test(prompt)) { setNotice({ kind: 'error', text: 'Describe the image you want after /image.' }); return; }
+    // "remember that …" / "ចងចាំថា …" saves a memory (Settings → Personalisation) that every later chat gets.
+    const remember = override === undefined ? /^(?:please\s+)?remember(?:\s+that)?\s+(.{3,200})$/i.exec(prompt) || /^(?:សូម)?(?:ចងចាំ|ចាំ)(?:ថា)?\s*(.{3,200})$/.exec(prompt) : null;
+    let memories = preferences.memories;
+    if (remember && !memories.includes(remember[1].trim())) {
+      memories = [...memories, remember[1].trim()].slice(-30);
+      setPreferences(current => ({ ...current, memories }));
+      setNotice({ kind: 'info', text: L('Saved to memory. See Settings → Personalisation.', 'បានរក្សាទុកក្នុងការចងចាំ។ មើលក្នុង ការកំណត់ → ផ្ទាល់ខ្លួន។') });
+    }
     if (attachment && /^\/image\b/i.test(prompt)) { setNotice({ kind: 'error', text: 'Send the attached image separately from an /image request.' }); return; }
     const chatId = active.id;
     // Regenerating replaces the exchange from `replaceFrom` onwards.
@@ -1048,6 +1066,7 @@ export default function DesktopApp() {
       reasoning: (preferences.reasoning && kind === 'chat') || undefined,
       translate: kind === 'chat' && !coding && preferences.translate !== 'off' ? preferences.translate : undefined,
       autoSearch: (preferences.autoSearch && kind === 'chat' && !coding) || undefined,
+      profile: { name: preferences.userName, about: preferences.aboutUser, instructions: preferences.instructions, style: preferences.responseStyle, memories },
       code: coding ? { root: preferences.codeRoot } : undefined,
     };
     setConversations(previous => previous.map(chat => chat.id === chatId
@@ -1374,6 +1393,44 @@ export default function DesktopApp() {
       </div>
     </main>
     {dialog === 'settings' && <Modal title={L('Settings', 'ការកំណត់')} onClose={() => setDialog(null)}>
+      <h3 className="form-heading">{L('Personalisation', 'ផ្ទាល់ខ្លួន')}</h3>
+      <div className="form-group">
+        <div className="form-row stacked">
+          <label htmlFor="setting-name">{L('What should Sulvana call you?', 'តើ Sulvana គួរហៅអ្នកថាអ្វី?')}</label>
+          <input id="setting-name" type="text" maxLength={60} placeholder={L('Your name or nickname', 'ឈ្មោះ ឬឈ្មោះហៅក្រៅរបស់អ្នក')} value={preferences.userName}
+            onChange={event => setPreferences(current => ({ ...current, userName: event.target.value }))} />
+        </div>
+        <div className="form-row stacked">
+          <label htmlFor="setting-about">{L('About you', 'អំពីអ្នក')}</label>
+          <textarea id="setting-about" rows={2} maxLength={600} dir="auto" placeholder={L('For example: Grade 8 student at Sisowath High School; I like science.', 'ឧទាហរណ៍៖ សិស្សថ្នាក់ទី៨ នៅវិទ្យាល័យព្រះស៊ីសុវត្ថិ ចូលចិត្តវិទ្យាសាស្ត្រ។')}
+            value={preferences.aboutUser} onChange={event => setPreferences(current => ({ ...current, aboutUser: event.target.value }))} />
+        </div>
+        <div className="form-row">
+          <label htmlFor="setting-style">{L('Answer style', 'របៀបឆ្លើយ')}</label>
+          <select id="setting-style" value={preferences.responseStyle} onChange={event => setPreferences(current => ({ ...current, responseStyle: event.target.value as ResponseStyle }))}>
+            {RESPONSE_STYLES.map(style => <option key={style} value={style}>{{
+              normal: L('Normal', 'ធម្មតា'), concise: L('Short', 'ខ្លី'), detailed: L('Detailed, like a teacher', 'លម្អិត ដូចគ្រូបង្រៀន'),
+              formal: L('Formal', 'ផ្លូវការ'), friendly: L('Friendly', 'រាក់ទាក់') }[style]}</option>)}
+          </select>
+        </div>
+        <div className="form-row stacked">
+          <label htmlFor="setting-instructions">{L('How should Sulvana answer?', 'តើ Sulvana គួរឆ្លើយបែបណា?')}</label>
+          <textarea id="setting-instructions" rows={2} maxLength={1500} dir="auto" placeholder={L('For example: use simple words and give one example each time.', 'ឧទាហរណ៍៖ ប្រើពាក្យងាយៗ ហើយផ្ដល់ឧទាហរណ៍មួយរាល់ពេល។')}
+            value={preferences.instructions} onChange={event => setPreferences(current => ({ ...current, instructions: event.target.value }))} />
+        </div>
+        <div className="form-row stacked">
+          <span id="setting-memory">{L('Memory', 'ការចងចាំ')} <span>{preferences.memories.length}/30</span></span>
+          {preferences.memories.length === 0
+            ? <p className="form-note">{L('Nothing saved yet. Say "remember that …" in any chat, and it is kept here and used in every chat.', 'មិនទាន់មានអ្វីត្រូវបានរក្សាទុកទេ។ និយាយថា «ចងចាំថា …» ក្នុងការសន្ទនាណាមួយ វានឹងត្រូវរក្សាទុកនៅទីនេះ ហើយប្រើក្នុងគ្រប់ការសន្ទនា។')}</p>
+            : <ul className="memory-list" aria-labelledby="setting-memory">{preferences.memories.map((memory, position) => <li key={position} dir="auto">
+              <span>{memory}</span>
+              <button type="button" aria-label={L('Forget this', 'បំភ្លេចវា')} title={L('Forget this', 'បំភ្លេចវា')}
+                onClick={() => setPreferences(current => ({ ...current, memories: current.memories.filter((_, index) => index !== position) }))}><X size={13} /></button>
+            </li>)}</ul>}
+        </div>
+      </div>
+      <p className="form-note">{L('Kept only in this browser. Sulvana gets these with every message.', 'រក្សាទុកតែនៅក្នុងកម្មវិធីរុករកនេះប៉ុណ្ណោះ។ Sulvana ទទួលបានព័ត៌មានទាំងនេះជាមួយសាររាល់ពេល។')}</p>
+      <h3 className="form-heading">{L('Answers and tools', 'ចម្លើយ និងឧបករណ៍')}</h3>
       <div className="form-group">
         <div className="form-row">
           <label htmlFor="setting-language">{L('Reply language', 'ភាសាឆ្លើយតប')}</label>
@@ -1500,7 +1557,8 @@ export default function DesktopApp() {
         <div><strong>{modelName} by WKH Labs</strong><span>Wisdom · Khmer · Heritage{baseModel ? ` · built on ${baseModel}` : ''}</span></div>
       </div>
       <div className="modal-actions spread">
-        <button type="button" onClick={() => { setPreferences(current => ({ ...DEFAULT_PREFERENCES, theme: current.theme, translate: current.translate, translateAsked: current.translateAsked, uiLanguage: current.uiLanguage })); setCustomLanguage(false); }}>{L('Reset to Defaults', 'កំណត់ដើមវិញ')}</button>
+        <button type="button" onClick={() => { setPreferences(current => ({ ...DEFAULT_PREFERENCES, theme: current.theme, translate: current.translate, translateAsked: current.translateAsked, uiLanguage: current.uiLanguage,
+          userName: current.userName, aboutUser: current.aboutUser, instructions: current.instructions, responseStyle: current.responseStyle, memories: current.memories })); setCustomLanguage(false); }}>{L('Reset to Defaults', 'កំណត់ដើមវិញ')}</button>
         <button type="button" className="approve-button" onClick={() => setDialog(null)}>{L('Done', 'រួចរាល់')}</button>
       </div>
     </Modal>}

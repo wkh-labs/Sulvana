@@ -85,6 +85,22 @@ def profile_available(name: str) -> bool:
     return info["file"].is_file() and info["file"].stat().st_size >= 4_000_000_000
 
 
+STYLES = {"normal", "concise", "detailed", "formal", "friendly"}
+
+
+def clean_profile(raw: object) -> dict:
+    """The user's personalisation from the app (name, about, instructions, style, memories), trimmed to safe sizes."""
+    if not isinstance(raw, dict):
+        return {}
+    text = lambda value, limit: " ".join(str(value).split())[:limit] if isinstance(value, str) else ""
+    memories = [text(item, 200) for item in raw.get("memories", []) if isinstance(item, str)][:30] \
+        if isinstance(raw.get("memories"), list) else []
+    return {"name": text(raw.get("name"), 60), "about": text(raw.get("about"), 600),
+            "instructions": text(raw.get("instructions"), 1500),
+            "style": raw.get("style") if raw.get("style") in STYLES else "normal",
+            "memories": [item for item in memories if item]}
+
+
 def saved_profile() -> str | None:
     try:
         name = json.loads(PROFILE_FILE.read_text())["profile"]
@@ -417,6 +433,7 @@ def main() -> None:
                            "X-Reasoning": "1" if request.get("reasoning") is True else "0",
                            "X-Translate": request.get("translate") if request.get("translate") in {"google", "local"} else "off",
                            "X-Auto-Search": "1" if request.get("autoSearch") is True else "0",
+                           "X-Profile": base64.b64encode(json.dumps(clean_profile(request.get("profile")), ensure_ascii=False).encode()).decode(),
                            # A friend on the shared link may chat, but not inspect this computer.
                            "X-Remote": "0" if self._is_local() else "1"}
                 if self._is_local():

@@ -366,3 +366,12 @@ html[data-text-size="large"] .message-column { zoom: 1.14; }
 .copy-message.active { color: var(--accent-text); }
 @keyframes sulvanaSpin { to { transform: rotate(360deg); } }
 .spin { animation: sulvanaSpin 1s linear infinite; }
+
+/* Settings → Personalisation */
+.form-heading { margin: 4px 4px 8px; font-size: 13px; font-weight: 600; color: var(--text-secondary, var(--text-primary)); letter-spacing: .02em; }
+.form-row.stacked textarea { width: 100%; resize: vertical; min-height: 44px; border-radius: 10px; border: 1px solid var(--glass-border); background: transparent; color: var(--text-primary); padding: 8px 10px; font: inherit; }
+.form-row.stacked > input[type="text"] { width: 100%; }
+.memory-list { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.memory-list li { display: flex; align-items: flex-start; gap: 8px; padding: 6px 8px; border-radius: 10px; background: var(--glass); font-size: 13px; }
+.memory-list li span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.memory-list button { flex: none; border: 0; background: transparent; color: var(--text-muted); cursor: pointer; padding: 2px; }

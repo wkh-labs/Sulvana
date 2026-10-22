@@ -19,3 +19,11 @@ The Reason switch under the message box asks Sulvana to work a problem out step 
 ## Search
 
 The Search switch under the message box lets Sulvana look one message up on the public web. The pages it used are listed as Sources under the answer.
+
+## Personalisation and memory
+
+Settings → Personalisation (ផ្ទាល់ខ្លួន) lets each person set what Sulvana calls them, a few lines about themselves, an
+answer style (normal, short, detailed like a teacher, formal or friendly) and their own instructions for how to answer.
+Saying "remember that …" (or «ចងចាំថា …») in any chat saves a memory that every later chat gets; memories are listed in
+Settings, where each can be forgotten. All of this is kept only in that person's browser and sent with each message.
+
