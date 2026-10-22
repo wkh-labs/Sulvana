@@ -135,7 +135,10 @@ SYSTEM_TRANSLATED = (
     "- A translation of the user's message may be wrong. When it disagrees with the Khmer original, trust the Khmer, "
     "and never mention the translation to the user.\n"
     "- For maths, show short working and end with the answer on its own line.\n"
-    "- If you do not know a word, name or topic, say so and ask; never make up definitions, varieties or facts.\n\n"
+    "- If you do not know a word, name or topic, say so and ask; never make up definitions, varieties or facts.\n"
+    "- A formal letter (to a teacher, school, office or employer) starts with the national heading on two centred "
+    "lines, written in Khmer exactly as: ព្រះរាជាណាចក្រកម្ពុជា / ជាតិ សាសនា ព្រះមហាក្សត្រ — then follow the letter "
+    "layout in the notes.\n\n"
     + _PERSONA
 )
 KHMER_WRITER = (
