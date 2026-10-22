@@ -36,6 +36,17 @@ Under a Khmer answer, **Listen** (ស្តាប់) reads it aloud with a Khme
 
 A friend using the shared link (share.sh) can chat, but terminal checks and coding mode are only available on the computer running Sulvana.
 
+## Reading a link
+
+When a message contains a web address (http:// or https://), Sulvana opens that one page, reads its text (up to about 8,000 characters) and answers from it, for example "summarise this article: https://…". The page is listed as the source. Only public web pages are read: addresses inside this computer or its network (localhost, 127.0.0.1, 192.168.x.x, the router) are refused, including after redirects, because friends on the shared link can send messages too. PDFs and other files are not read.
+
+## Calculator and Khmer number words
+
+- `/calc <arithmetic>` gives an exact result: + − × ÷ ^ %, brackets, sqrt, round, abs and pi; Khmer digits work too. Example: `/calc 50000 - 3*8500` → 24,500.
+- `/number <whole number>` writes the number in Khmer words. Example: `/number 37450` → បីម៉ឺនប្រាំពីរពាន់បួនរយហាសិប.
+
+When a web search finds a Wikipedia article, Sulvana gets the article's opening paragraph rather than a one-line snippet.
+
 ## Read-only terminal
 
 `terminal.read` runs a small set of inspection commands in the Sulvana workspace. Allowed commands are:

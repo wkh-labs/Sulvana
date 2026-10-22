@@ -20,7 +20,7 @@ import uuid
 from pathlib import Path
 
 import sulvana_code
-from sulvana_tools import (TOOL_INSTRUCTIONS, glossary_for_english, glossary_terms, google_translate, khmer_names, local_translate, note_passages,
+from sulvana_tools import (TOOL_INSTRUCTIONS, URL_IN_TEXT, calculate, glossary_for_english, glossary_terms, google_translate, khmer_names, local_translate, note_passages,
                            parse_tool_call, run_tool, translate, translate_markdown)
 
 
@@ -1255,7 +1255,7 @@ class ModelWorker:
         self._emit("generation_started")
         if settings.get("remote") and re.match(r"^/terminal\b", text, re.I):
             text = "/docs " + text[len("/terminal"):].strip()   # not available on the shared link
-        slash = re.match(r"^/(terminal|docs|search|translate)(?:\s+|$)", text, re.I)
+        slash = re.match(r"^/(terminal|docs|search|translate|calc|number)(?:\s+|$)", text, re.I)
         if slash:
             action = slash.group(1).casefold()
             argument = text[slash.end():].strip()
@@ -1264,8 +1264,20 @@ class ModelWorker:
                 "docs": ("docs.search", "query"),
                 "search": ("web.search", "query"),
                 "translate": ("", "text"),
+                "calc": ("", "expression"),
+                "number": ("", "number"),
             }[action]
-            if action == "translate":
+            if action == "calc":
+                reply = calculate(argument) if argument else "Usage: /calc <arithmetic>, for example /calc 50000 - 3*8500"
+            elif action == "number":
+                # A number written out in Khmer words, the way it is read aloud.
+                digits = argument.translate(str.maketrans("០១២៣៤៥៦៧៨៩", "0123456789")).replace(",", "").replace(" ", "")
+                if digits.isdigit() and len(digits) <= 12:
+                    from sulvana_speech import number_words
+                    reply = f"{argument} = {number_words(int(digits))}"
+                else:
+                    reply = "Usage: /number <a whole number>, for example /number 37450"
+            elif action == "translate":
                 # Khmer becomes English and anything else becomes Khmer. Google only when the user allowed it.
                 reply = ((translate(argument, "en" if KHMER.search(argument) else "km",
                                     "google" if settings.get("translate") == "google" else "local")[0]
@@ -1290,7 +1302,11 @@ class ModelWorker:
         wants_web = bool(settings.get("search")) or self._may_search_web(text)
         allow_web = wants_web
         pretool: tuple[str, dict] | None = None
-        if "documentation tool" in lowered or "search the docs" in lowered or "ស្វែងរកឯកសារ" in text:
+        link = URL_IN_TEXT.search(text) if settings.get("code_root") is None else None
+        if link:
+            # The user gave a link: read that page and answer from it.
+            pretool = ("web.read", {"url": link.group(0)})
+        elif "documentation tool" in lowered or "search the docs" in lowered or "ស្វែងរកឯកសារ" in text:
             pretool = ("docs.search", {"query": text})
         elif wants_web:
             pretool = ("web.search", {"query": search_query(text)})
@@ -1320,6 +1336,8 @@ class ModelWorker:
             sources: list[dict] = []
             if name == "web.search":
                 self._emit("status", "Searching the web…")
+            elif name == "web.read":
+                self._emit("status", "Reading the page…")
             if name == "terminal.read" and settings.get("remote"):
                 result = "Blocked: terminal checks are only available on the computer running Sulvana."
             else:

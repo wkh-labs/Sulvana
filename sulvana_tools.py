@@ -318,8 +318,29 @@ def _wikipedia_results(query: str, language: str = "en") -> list[dict[str, str]]
     return results
 
 
+def _wikipedia_summary(url: str) -> str:
+    """The opening paragraph of a Wikipedia article, which says far more than a search snippet."""
+    match = re.match(r"https://([a-z]{2,3})\.wikipedia\.org/wiki/([^?#]+)", url)
+    if not match:
+        return ""
+    api = f"https://{match.group(1)}.wikipedia.org/api/rest_v1/page/summary/{match.group(2)}"
+    try:
+        request = urllib.request.Request(api, headers={"User-Agent": "Sulvana/2.0 (local assistant)"})
+        with urllib.request.urlopen(request, timeout=8) as response:
+            return " ".join(str(json.loads(response.read().decode("utf-8", errors="replace")).get("extract", "")).split())[:1500]
+    except (OSError, ValueError):
+        return ""
+
+
 def web_search(query: str, sources: list | None = None) -> str:
     results, problem = web_search_results(query)
+    # The first Wikipedia result gets its article summary in place of the short snippet.
+    for item in results[:5]:
+        if "wikipedia.org/wiki/" in item.get("url", ""):
+            summary = _wikipedia_summary(item["url"])
+            if summary:
+                item["snippet"] = summary
+            break
     if sources is not None:
         sources.extend({"title": item["title"], "url": item["url"]} for item in results)
     return "\n".join(f"- {item['title']}\n  {item['url']}\n  {item['snippet']}" for item in results) if results else problem
@@ -608,6 +629,123 @@ def translate_markdown(text: str, target: str, engine: str = "google",
     return "".join(out), used
 
 
+# Reading a web page the user linked. Friends on the shared link can send messages too, so addresses inside this
+# computer or its network (localhost, the router, 192.168.x.x …) are refused, including after redirects.
+def _public_host(url: str) -> bool:
+    import ipaddress
+    import socket as _socket
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme not in {"http", "https"} or not parts.hostname:
+        return False
+    try:
+        addresses = {info[4][0] for info in _socket.getaddrinfo(parts.hostname, parts.port or 443)}
+    except OSError:
+        return False
+    return bool(addresses) and all(ipaddress.ip_address(a.split("%")[0]).is_global for a in addresses)
+
+
+class _PublicRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not _public_host(newurl):
+            raise urllib.error.URLError("redirect to a private address refused")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+class _PageText(HTMLParser):
+    """Visible text of an HTML page, without scripts, styles and navigation."""
+    SKIP = {"script", "style", "noscript", "svg", "nav", "footer", "header", "form"}
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.depth, self.parts, self.title, self.in_title = 0, [], "", False
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        if tag in self.SKIP:
+            self.depth += 1
+        elif tag == "title":
+            self.in_title = True
+        elif tag in {"p", "br", "li", "h1", "h2", "h3", "h4", "tr", "div"}:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in self.SKIP and self.depth:
+            self.depth -= 1
+        elif tag == "title":
+            self.in_title = False
+
+    def handle_data(self, data: str) -> None:
+        if self.in_title:
+            self.title += data
+        elif not self.depth:
+            self.parts.append(data)
+
+
+URL_IN_TEXT = re.compile(r"https?://[^\s<>\"'«»]+")
+
+
+def web_read(url: str, sources: list | None = None, limit: int = 8000) -> str:
+    """Fetch a public web page the user linked and return its readable text."""
+    url = url.rstrip(".,);]")
+    if not _public_host(url):
+        return "Blocked: that address is not a public web page."
+    try:
+        opener = urllib.request.build_opener(_PublicRedirects())
+        request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Sulvana local assistant)"})
+        with opener.open(request, timeout=15) as response:
+            kind = response.headers.get("Content-Type", "")
+            raw = response.read(3_000_000)
+    except (OSError, ValueError) as error:
+        return f"The page could not be opened: {error}"
+    if "html" not in kind and "text" not in kind:
+        return f"That link is not a web page ({kind or 'unknown type'}); Sulvana can only read web pages."
+    page = _PageText()
+    page.feed(raw.decode("utf-8", errors="replace"))
+    text = re.sub(r"\n\s*\n+", "\n\n", re.sub(r"[ \t]+", " ", "".join(page.parts))).strip()
+    title = " ".join(page.title.split())[:200] or url
+    if sources is not None:
+        sources.append({"title": title, "url": url})
+    return f"Title: {title}\nAddress: {url}\n\n{text[:limit]}" + ("\n[…the page continues]" if len(text) > limit else "")
+
+
+def calculate(expression: str) -> str:
+    """Exact arithmetic for /calc: + − × ÷ ^ % brackets, Khmer digits, and sqrt, pi, round, abs."""
+    import ast
+    import math
+    import operator
+    text = expression.translate(str.maketrans("០១២៣៤៥៦៧៨៩×÷−", "0123456789*/-")).replace("^", "**").replace(",", "")
+    allowed = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv,
+               ast.Pow: operator.pow, ast.Mod: operator.mod, ast.FloorDiv: operator.floordiv,
+               ast.USub: operator.neg, ast.UAdd: operator.pos}
+    names = {"pi": math.pi, "e": math.e}
+    functions = {"sqrt": math.sqrt, "round": round, "abs": abs}
+
+    def value(node):
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            return node.value
+        if isinstance(node, ast.BinOp) and type(node.op) in allowed:
+            left, right = value(node.left), value(node.right)
+            if isinstance(node.op, ast.Pow) and abs(right) > 100:
+                raise ValueError("exponent too large")
+            return allowed[type(node.op)](left, right)
+        if isinstance(node, ast.UnaryOp) and type(node.op) in allowed:
+            return allowed[type(node.op)](value(node.operand))
+        if isinstance(node, ast.Name) and node.id in names:
+            return names[node.id]
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in functions
+                and not node.keywords and len(node.args) <= 2):
+            return functions[node.func.id](*(value(arg) for arg in node.args))
+        raise ValueError("only numbers, + - * / ^ %, brackets, sqrt, round, abs and pi are allowed")
+
+    try:
+        result = value(ast.parse(text, mode="eval").body)
+    except (SyntaxError, ValueError, ZeroDivisionError, OverflowError, TypeError) as error:
+        return f"Could not calculate that: {error}"
+    if isinstance(result, float) and result.is_integer() and abs(result) < 1e15:
+        result = int(result)
+    shown = f"{result:,}" if isinstance(result, int) else f"{result:,.10g}"
+    return f"{expression.strip()} = {shown}"
+
+
 def run_tool(name: str, arguments: dict, *, allow_web: bool = False,
              approve: Callable[[str], bool] | None = None, sources: list | None = None) -> str:
     if name == "docs.search":
@@ -618,6 +756,8 @@ def run_tool(name: str, arguments: dict, *, allow_web: bool = False,
         if not allow_web:
             return "Blocked: web search requires the user's explicit request to search online."
         return web_search(str(arguments.get("query", "")), sources)
+    if name == "web.read":
+        return web_read(str(arguments.get("url", "")), sources)
     return "Blocked: unknown tool."
 
 

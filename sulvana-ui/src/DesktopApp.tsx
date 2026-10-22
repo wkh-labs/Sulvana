@@ -1034,7 +1034,7 @@ export default function DesktopApp() {
     const user: Message = { id: createId(), role: 'user', text: prompt, attachment: attachment?.name };
     const assistant: Message = {
       id: createId(), role: 'assistant', text: '', pending: true,
-      plain: /^\/(terminal|docs|search)(\s|$)/i.test(prompt) || undefined,
+      plain: /^\/(terminal|docs|search|calc|number)(\s|$)/i.test(prompt) || undefined,
       activity: kind === 'vision' ? 'Looking at your image…' : kind === 'image' ? 'Creating your image…' : coding ? 'Looking at your project…' : searchOn ? 'Searching the web…' : 'Thinking…',
     };
     const payload: StreamPayload = {
@@ -1509,12 +1509,14 @@ export default function DesktopApp() {
       <div className="form-group">
         <div className="form-row"><span>Local documentation</span><em>Available</em></div>
         <div className="form-row"><span>{L('Public web search', 'ស្វែងរកតាមអ៊ីនធឺណិត')}</span><em className="online">{preferences.autoSearch ? L('Online · when asked or unsure', 'អនឡាញ · ពេលសួរ ឬមិនច្បាស់') : L('Online · when asked', 'អនឡាញ · ពេលសួរ')}</em></div>
+        <div className="form-row"><span>{L('Read a link you send', 'អានតំណដែលអ្នកផ្ញើ')}</span><em className="online">{L('Online · when you send a link', 'អនឡាញ · ពេលផ្ញើតំណ')}</em></div>
+        <div className="form-row"><span>{L('Calculator and Khmer number words', 'ម៉ាស៊ីនគិតលេខ និងលេខជាពាក្យខ្មែរ')}</span><em>/calc · /number</em></div>
         <div className="form-row"><span>{L('Khmer tools', 'ឧបករណ៍ភាសាខ្មែរ')}</span><em className={preferences.translate === 'google' ? 'online' : ''}>{preferences.translate === 'google' ? 'Online · Google' : preferences.translate === 'local' ? 'On this computer' : 'Off'}</em></div>
         <div className="form-row"><span>Read only terminal checks</span><em>Limited</em></div>
         <div className="form-row"><span>Coding mode (one project folder)</span><em>Asks first</em></div>
       </div>
       <p className="form-note">With <b>Code</b> on, Sulvana works in the project folder you chose: it reads and searches files on its own, but shows every edit as a diff and every command before it runs. Commands run in a sandbox with no network that can only change the project folder. Each reply's file edits can be undone.</p>
-      <p className="form-note">Try <code>/docs your topic</code>, <code>/search your question</code>, or <code>/terminal nvidia-smi</code>. Some extra read only inspections ask for one-time permission and show the exact command. File changes, installs, and arbitrary commands are blocked.</p>
+      <p className="form-note">Try <code>/calc 50000 - 3*8500</code>, <code>/number 37450</code>, <code>/search your question</code>, <code>/docs your topic</code>, or <code>/terminal nvidia-smi</code>. Paste a link into a message and Sulvana reads that page. Some extra read only inspections ask for one-time permission and show the exact command. File changes, installs, and arbitrary commands are blocked.</p>
       <div className="modal-actions"><button type="button" className="approve-button" onClick={() => setDialog(null)}>{L('Done', 'រួចរាល់')}</button></div>
     </Modal>}
     {dialog === 'improve' && improving && <Modal title="Improve this answer" onClose={() => { setDialog(null); setImproving(null); }} className="improve-backdrop">
