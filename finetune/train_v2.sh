@@ -3,7 +3,7 @@
 # at several strengths against plain MiMo and v1. Usage: finetune/train_v2.sh <run-name> [epochs]
 # Progress and results: runs/mimo/<run-name>.log
 set -u
-cd /home/tanchjim/Documents/Codex/ai-workspace
+cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.."
 RUN=${1:?run name}; EPOCHS=${2:-2}
 OUT=runs/finetune/$RUN
 LOG=runs/mimo/$RUN.log

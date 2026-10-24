@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP=/home/tanchjim/Documents/Codex/ai-workspace
+APP="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 JAVA="$APP/.runtime/java/bin/java"
 JAVAC="$APP/.runtime/java/bin/javac"
 JAVAFX="$APP/.runtime/javafx/javafx-sdk-25.0.4/lib"

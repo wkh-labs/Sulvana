@@ -22,7 +22,7 @@ restore_profile() {
 trap restore_profile EXIT INT TERM
 
 power_profile set performance
-source "/home/tanchjim/Documents/Codex/ai-workspace/activate-ai.sh"
+source "$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)/activate-ai.sh"
 
 set +e
 "$@"

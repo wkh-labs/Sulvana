@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Callable
 
 
-ROOT = Path("/home/tanchjim/Documents/Codex/ai-workspace").resolve()
+ROOT = Path(__file__).resolve().parent   # the folder Sulvana was installed in
 DOC_ROOTS = (ROOT / "knowledge",)
 PROJECT_DOCS = (ROOT / "README.md", ROOT / "Z-Image-Turbo.md")
 MAX_OUTPUT = 50_000

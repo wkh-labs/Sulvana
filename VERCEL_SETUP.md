@@ -43,7 +43,7 @@ You only need to deploy the frontend to Vercel once.
 Run this in your terminal:
 
 ```bash
-cd /home/tanchjim/Documents/Codex/ai-workspace/sulvana-ui
+cd sulvana-ui
 vercel
 ```
 

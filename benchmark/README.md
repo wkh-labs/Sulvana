@@ -39,8 +39,8 @@ Each line of a response file must look like this:
 Score the private test split:
 
 ```bash
-source /home/tanchjim/Documents/Codex/ai-workspace/activate-ai.sh
-python /home/tanchjim/Documents/Codex/ai-workspace/benchmark/score_responses.py \
+source ./activate-ai.sh
+python benchmark/score_responses.py \
   /path/to/model-responses.jsonl \
   --split test \
   --report /path/to/report.json

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-AI_WORKSPACE="/home/tanchjim/Documents/Codex/ai-workspace"
+AI_WORKSPACE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 
 source "$AI_WORKSPACE/.venv/bin/activate"
 

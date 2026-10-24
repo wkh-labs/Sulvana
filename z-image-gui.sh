@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-app=/home/tanchjim/Documents/Codex/ai-workspace
+app="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 prompt=$(zenity --entry --title='Z-Image Turbo' \
   --text='Describe the image you want to create:' \
   --width=600) || exit 0

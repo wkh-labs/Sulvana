@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-exec /home/tanchjim/Documents/Codex/ai-workspace/run-performance.sh \
-  python /home/tanchjim/Documents/Codex/ai-workspace/run-qwen-base.py "$@"
+APP="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+exec "$APP/run-performance.sh" \
+  python "$APP/run-qwen-base.py" "$@"

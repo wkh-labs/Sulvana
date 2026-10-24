@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-app=/home/tanchjim/Documents/Codex/ai-workspace
+app="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 model_dir="$app/models/Z-Image-Turbo"
 runner="$app/z-image-runner/sd-cli"
 prompt=${1:-}

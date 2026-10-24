@@ -1,9 +1,82 @@
-# Local AI workspace
+# Sulvana
 
-This directory contains an isolated Python 3.12 environment for NVIDIA GPU work.
-It does not modify CachyOS's system Python.
+**Sulvana** is a Khmer-first AI assistant by **WKH Labs** (Wisdom · Khmer · Heritage) that runs entirely on your
+own computer. It answers in Khmer, looks things up when it is not sure, reads answers aloud, remembers what you tell
+it, and keeps your conversations on your machine. It is built on the open model MiMo-V2.6-Distill-Qwen-9B and runs
+on one 8 GB laptop GPU. Non-commercial; credits and licences are in `NOTICE.md`.
 
-## Sulvana desktop app
+## Install
+
+**You need:** Linux on x86_64, a GPU with 8 GB of memory (NVIDIA, AMD or Intel; with less it still runs, more slowly),
+about 10 GB of free disk space, Python 3.10+, `curl`, and Node.js 20.19+ (only to build the interface once).
+
+```bash
+git clone https://github.com/wkh-labs/Sulvana.git
+cd Sulvana
+./install.sh
+```
+
+The installer checks your computer, shows what it will download and how big it is, asks before downloading, then
+builds the interface and adds **Sulvana** to your app menu and a `sulvana` command. Run it again any time: it skips
+what is already there and resumes interrupted downloads. Then open Sulvana from the app menu, or run:
+
+```bash
+sulvana
+```
+
+### What gets downloaded
+
+| Part | Size | Source |
+| --- | --- | --- |
+| Inference runtime: llama.cpp b11175 (Vulkan) | 31 MB | [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp/releases/tag/b11175) |
+| Chat model: MiMo-V2.6-Distill-Qwen-9B, Q4_K_M | 5.8 GB | [bartowski/MiMo-V2.6-Distill-Qwen-9B-GGUF](https://huggingface.co/bartowski/MiMo-V2.6-Distill-Qwen-9B-GGUF) |
+| Khmer tools: Hy-MT2 1.8B, Q8_0 | 1.9 GB | [tencent/Hy-MT2-1.8B-GGUF](https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF) |
+
+### Optional extras
+
+Choose them during install, or add them later with `./install.sh --with <name>` (several: `--with voice,vision`,
+everything: `--all`).
+
+| Extra | What it adds | Size |
+| --- | --- | --- |
+| `voice` | **Listen**: reads Khmer answers aloud ([facebook/mms-tts-khm](https://huggingface.co/facebook/mms-tts-khm)) | 145 MB + ~1 GB of Python packages (PyTorch for the CPU) |
+| `vision` | Questions about attached images ([Qwen2.5-VL-3B](https://huggingface.co/unsloth/Qwen2.5-VL-3B-Instruct-GGUF)) | 3.3 GB |
+| `images` | Image creation with `/image` ([Z-Image Turbo](https://huggingface.co/unsloth/Z-Image-Turbo-GGUF), [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp)) | 7.7 GB |
+| `nllb` | Backup Khmer translator ([NLLB-200 1.3B](https://huggingface.co/OpenNMT/nllb-200-distilled-1.3B-ct2-int8)) | 1.4 GB + ~0.6 GB of Python packages |
+
+The WKH Labs Khmer adapters (the small fine-tunes that polish Sulvana's Khmer) are not published for download yet.
+Without them Sulvana runs the base model; with them in `runs/finetune/`, it picks them up automatically.
+
+### Everyday commands
+
+| Command | What it does |
+| --- | --- |
+| `sulvana` | Opens Sulvana (starts its engine if needed) |
+| `sulvana stop` | Stops the engine and frees its GPU memory, e.g. before gaming |
+| `./install.sh --check` | Shows what is installed and what is missing; changes nothing |
+| `git pull && ./install.sh` | Updates Sulvana |
+| `./share.sh` | Shares Sulvana with friends through a private link (see `VERCEL_SETUP.md`) |
+| `./install.sh --uninstall` | Removes the app-menu entry and the `sulvana` command; then delete this folder to remove everything |
+
+### If something goes wrong
+
+- **"llama.cpp did not find a GPU":** install your GPU's Vulkan driver (Arch/CachyOS: `sudo pacman -S
+  vulkan-icd-loader` plus `nvidia-utils`, `vulkan-radeon` or `vulkan-intel`; Debian/Ubuntu: `sudo apt install libvulkan1
+  mesa-vulkan-drivers`) and run `./install.sh` again. On NVIDIA you can also try the CUDA build:
+  `rm -rf vision-runner && ./install.sh --gpu cuda`.
+- **Other apps or games crash, or the screen stutters, while Sulvana is open:** the model keeps about 6 GB of GPU memory
+  loaded. Run `sulvana stop` while gaming, or start Sulvana with more room left free:
+  `sulvana stop; SULVANA_GPU_HEADROOM_MB=2560 sulvana` (slower replies).
+- **`sulvana: command not found`:** `~/.local/bin` is not on your PATH. Add it (fish: `fish_add_path ~/.local/bin`;
+  bash/zsh: `export PATH="$HOME/.local/bin:$PATH"` in your shell's rc file) or open Sulvana from the app menu.
+- **No app window, it opens in the browser:** Sulvana uses Electron when it is installed (`electron` on your PATH),
+  otherwise a Chromium-family browser in app mode, otherwise your default browser. All three work the same.
+- **The engine does not start:** run `./install.sh --check`, and look at the engine's log with
+  `journalctl --user -u sulvana-web -e` (or `.runtime/sulvana-web.log` on systems without systemd).
+
+## Developer notes
+
+### How the app is put together
 
 Run `sulvana` from a terminal or open **Sulvana** from the application launcher.
 It opens a native desktop window; the Python model service stays on this laptop.
@@ -22,11 +95,11 @@ The exact tool limits are documented in `knowledge/TOOLS.md` and
 Sulvana replies in Khmer when you write in Khmer or when the language is unclear, and in
 your language when you clearly write in another one; the Reply language setting overrides
 both. Its name, the model it is built on, the context size and both system prompts are at the
-top of `sulvana_worker.py`. Khmer text needs about 1.6 tokens per character, so the engine
-runs with a 65,536-token context and replies can be up to 8,192 tokens; a reply that stops at
-the limit gets a Continue button. That context does not fit in 8 GB of VRAM next to the model,
-so llama.cpp (`--fit`) keeps some layers in system RAM, which makes replies slower; start Sulvana
-with `SULVANA_CONTEXT=16384` for full GPU speed with a shorter memory.
+top of `sulvana_worker.py`. MiMo's tokenizer needs about one token per Khmer character; the engine
+runs with a 32,768-token context and replies can be up to 8,192 tokens; a reply that stops at
+the limit gets a Continue button. llama.cpp (`--fit`) decides how many layers stay on the GPU and
+leaves 1,280 MB free for the desktop (`SULVANA_GPU_HEADROOM_MB`); start Sulvana with
+`SULVANA_CONTEXT=16384` for a little more speed with a shorter memory.
 
 **Khmer tools** (Settings) make Khmer replies more accurate: Sulvana answers in English and the translation model
 Hy-MT2 1.8B (`models/hy-mt2-1.8b/Hy-MT2-1.8B-Q8_0.gguf`, 1.9 GB, from `tencent/Hy-MT2-1.8B-GGUF`) writes the Khmer on
@@ -69,9 +142,9 @@ editing the interface run `npm run build` in `sulvana-ui/`; the launcher also re
 the sources are newer than the build. Restart the engine after editing the Python files with
 `systemctl --user stop sulvana-web` and launch `sulvana` again.
 
-The interface follows Apple's Liquid Glass design language: translucent, blurred panels floating
-over a softly tinted backdrop, with spring animations. Colours, glass, type and weights are tokens
-at the top of `sulvana-ui/src/index.css`. The logo (`sulvana-icon.svg`) is a five-petal lotus,
+The interface uses the WKH Labs style (the same as the website): flat pastel colour, chunky controls
+on hard flat shadows, Apple's type. Colours, type and weights are tokens at the top of
+`sulvana-ui/src/index.css`. The logo (`sulvana-icon.svg`) is a five-petal lotus,
 also drawn inline in the interface. San Francisco itself is licensed for Apple platforms only, so the
 font stack uses it where it exists and otherwise Inter or the Inter-based Adwaita Sans that
 ships with this desktop; Khmer text falls through to Noto Sans Khmer. Medium, semibold and bold
@@ -79,34 +152,32 @@ come from the `--weight-*` tokens rather than `font-weight`, and surfaces are so
 the JavaFX fallback shell gets opaque panels, because it can draw neither real weights of that
 font nor background blur.
 
-## Start an interactive environment
+### Start an interactive environment
 
 ```bash
-source /home/tanchjim/Documents/Codex/ai-workspace/activate-ai.sh
+source ./activate-ai.sh
 ```
 
-## Run a long job at full plugged-in performance
+### Run a long job at full plugged-in performance
 
 The wrapper checks that the main AC adapter is connected, switches to the
 Performance power profile, activates the environment, runs the command, and
 restores the previous power profile when the command exits.
 
 ```bash
-/home/tanchjim/Documents/Codex/ai-workspace/run-performance.sh python train.py
+./run-performance.sh python train.py
 ```
 
-## Verify the GPU stack
+### Verify the GPU stack
 
 ```bash
-/home/tanchjim/Documents/Codex/ai-workspace/run-performance.sh \
-  python /home/tanchjim/Documents/Codex/ai-workspace/gpu-check.py
+./run-performance.sh python gpu-check.py
 ```
 
 Run the optional 20-second cooling and stability check:
 
 ```bash
-/home/tanchjim/Documents/Codex/ai-workspace/run-performance.sh \
-  python /home/tanchjim/Documents/Codex/ai-workspace/gpu-benchmark.py
+./run-performance.sh python gpu-benchmark.py
 ```
 
 Large reusable files belong in `datasets/`, `models/`, and `runs/`. Hugging Face
@@ -115,7 +186,7 @@ and PyTorch caches are kept inside this workspace so disk usage is easy to audit
 For an 8 GB GPU, prefer BF16, gradient checkpointing, short initial context
 lengths, gradient accumulation, and 4-bit QLoRA for 7B/8B models.
 
-## Fine-tune Dolphin 3.0 · 8B
+### Fine-tune Dolphin 3.0 · 8B
 
 `finetune/` holds a QLoRA workflow for the model Sulvana uses: dataset validation and
 splitting, resumable training with logged runs, and evaluation against the original
@@ -128,12 +199,12 @@ model file. It has been smoke-tested on a tiny stand-in model only; a real run f
 .venv/bin/python finetune/fetch_base.py     # shows what the 16 GB download would fetch
 ```
 
-## Chat with Qwen3 1.7B
+### Chat with Qwen3 1.7B
 
 Launch the JavaFX desktop GUI (styled with CSS, using the local Python model backend):
 
 ```bash
-/home/tanchjim/Documents/Codex/ai-workspace/qwen-gui.sh
+./qwen-gui.sh
 ```
 
 The desktop app supports Unicode input and display, right-to-left chat text,
@@ -146,7 +217,7 @@ Its Java 25 and JavaFX 25 runtimes are stored locally in `.runtime/`.
 Or use the Qwen terminal interface:
 
 ```bash
-/home/tanchjim/Documents/Codex/ai-workspace/qwen-chat.sh \
+./qwen-chat.sh \
   --max-new-tokens 256
 ```
 
@@ -155,7 +226,7 @@ keeps conversation history, streams replies, and supports `/help`, `/clear`,
 `/stats`, `/system TEXT`, and `/quit`. The separate base checkpoint remains in
 `models/Qwen3-1.7B-Base` for baseline evaluation and future fine-tuning.
 
-## Sulvana images and vision
+### Sulvana images and vision
 
 In Sulvana, ask `Generate an image of …` or start a message with `/image …`
 to create an image locally with Z-Image Turbo. Attach a PNG, JPG, JPEG, or WebP
@@ -163,5 +234,5 @@ and ask a question about it.
 
 For image requests and image understanding, Sulvana temporarily swaps the
 normal chat model out of GPU memory, runs the specialist model, then reloads
-Dolphin. This keeps the workflow reliable on the laptop's 8 GB GPU, but each
+the chat model. This keeps the workflow reliable on the laptop's 8 GB GPU, but each
 swap adds a short wait before the reply appears.

@@ -25,7 +25,10 @@ KHMER_DIGITS = str.maketrans("០១២៣៤៥៦៧៨៩", "0123456789")
 
 
 def available() -> bool:
-    return (MODEL_DIR / "model.safetensors").is_file()
+    """The voice needs its model and the optional Python packages (installed with ./install.sh --with voice)."""
+    import importlib.util
+    return (MODEL_DIR / "model.safetensors").is_file() and all(
+        importlib.util.find_spec(name) is not None for name in ("torch", "transformers", "numpy"))
 
 
 def number_words(value: int) -> str:

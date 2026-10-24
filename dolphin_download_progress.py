@@ -9,7 +9,7 @@ from pathlib import Path
 from tkinter import ttk
 
 
-MODEL = Path("/home/tanchjim/Documents/Codex/ai-workspace/models/Dolphin3.0-Llama3.1-8B/Dolphin3.0-Llama3.1-8B-Q4_K_M.gguf")
+MODEL = (Path(__file__).resolve().parent / "models/Dolphin3.0-Llama3.1-8B/Dolphin3.0-Llama3.1-8B-Q4_K_M.gguf")
 TOTAL = 4_920_749_472
 
 

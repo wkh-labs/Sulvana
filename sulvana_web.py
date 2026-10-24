@@ -20,7 +20,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 
-ROOT = Path("/home/tanchjim/Documents/Codex/ai-workspace")
+ROOT = Path(__file__).resolve().parent   # the folder Sulvana was installed in
 sys.path.insert(0, str(ROOT))
 import sulvana_code  # noqa: E402  (undo of coding-mode edits)
 from sulvana_worker import die_with_parent  # noqa: E402

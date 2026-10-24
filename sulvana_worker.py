@@ -24,7 +24,7 @@ from sulvana_tools import (TOOL_INSTRUCTIONS, URL_IN_TEXT, calculate, glossary_f
                            parse_tool_call, run_tool, translate, translate_markdown)
 
 
-ROOT = Path("/home/tanchjim/Documents/Codex/ai-workspace")
+ROOT = Path(__file__).resolve().parent   # the folder Sulvana was installed in
 # The open models Sulvana can be built on. MiMo-V2.6-Distill-Qwen-9B (Xiaomi's agentic fine-tune of
 # Qwen3.5-9B) is the default since 2026-10-14: far better at coding, and its tokenizer needs a third
 # fewer tokens for Khmer. SULVANA_BASE=dolphin runs the previous model instead.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-APP="${SULVANA_APP:-/home/tanchjim/Documents/Codex/ai-workspace}"
+APP="${SULVANA_APP:-$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)}"
 cd "$APP"
 PYTHON="$APP/.venv/bin/python"
 if [[ ! -x "$PYTHON" ]]; then

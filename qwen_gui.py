@@ -23,12 +23,12 @@ from transformers import (
 )
 
 
-MODEL_PATH = Path("/home/tanchjim/Documents/Codex/ai-workspace/models/Qwen3-1.7B")
-IMAGE_SCRIPT = Path("/home/tanchjim/Documents/Codex/ai-workspace/z-image.sh")
-IMAGE_OUTPUT_DIR = Path("/home/tanchjim/Documents/Codex/ai-workspace/runs/z-image")
-VISION_CLI = Path("/home/tanchjim/Documents/Codex/ai-workspace/vision-runner/llama-mtmd-cli")
-VISION_MODEL = Path("/home/tanchjim/Documents/Codex/ai-workspace/models/Qwen2.5-VL-3B/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf")
-VISION_PROJECTOR = Path("/home/tanchjim/Documents/Codex/ai-workspace/models/Qwen2.5-VL-3B/mmproj-F16.gguf")
+MODEL_PATH = (Path(__file__).resolve().parent / "models/Qwen3-1.7B")
+IMAGE_SCRIPT = (Path(__file__).resolve().parent / "z-image.sh")
+IMAGE_OUTPUT_DIR = (Path(__file__).resolve().parent / "runs/z-image")
+VISION_CLI = (Path(__file__).resolve().parent / "vision-runner/llama-mtmd-cli")
+VISION_MODEL = (Path(__file__).resolve().parent / "models/Qwen2.5-VL-3B/Qwen2.5-VL-3B-Instruct-Q4_K_M.gguf")
+VISION_PROJECTOR = (Path(__file__).resolve().parent / "models/Qwen2.5-VL-3B/mmproj-F16.gguf")
 DEFAULT_SYSTEM_PROMPT = (
     "You are a helpful, honest assistant. Reply in the same language as the user. "
     "If you are uncertain, say so instead of inventing facts."

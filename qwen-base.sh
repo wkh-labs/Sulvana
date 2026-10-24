@@ -2,4 +2,4 @@
 set -euo pipefail
 
 # Compatibility name retained for the command used during base-model testing.
-exec /home/tanchjim/Documents/Codex/ai-workspace/qwen-chat.sh "$@"
+exec "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/qwen-chat.sh" "$@"

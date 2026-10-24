@@ -12,7 +12,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
 
 
-MODEL_PATH = Path("/home/tanchjim/Documents/Codex/ai-workspace/models/Qwen3-1.7B")
+MODEL_PATH = (Path(__file__).resolve().parent / "models/Qwen3-1.7B")
 DEFAULT_SYSTEM_PROMPT = (
     "You are a helpful, honest assistant. Reply in the same language as the user. "
     "If you are uncertain, say so instead of inventing facts."
