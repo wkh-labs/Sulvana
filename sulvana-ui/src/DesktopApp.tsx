@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { ArrowDown, ArrowUp, Menu, Volume2, LoaderCircle, Brain, FileDown, RefreshCw, Check, ChevronRight, ChevronsDown, Code, Copy, Download, FilePen, FilePlus, FileText, FolderCode, FolderOpen, Globe, Image as ImageIcon, ImagePlus, Lightbulb, PencilLine, ThumbsUp, MessageCircle, Paperclip, RotateCcw, Search, Settings, ShieldCheck, Sparkles, Square, SquarePen, SquareTerminal, Trash2, TriangleAlert, Undo2, Wrench, X, type LucideIcon } from 'lucide-react';
+import { ArrowDown, ArrowUp, Menu, Volume2, LoaderCircle, Brain, FileDown, RefreshCw, Check, ChevronRight, ChevronsDown, Code, Copy, Download, FilePen, FilePlus, FileText, FolderCode, FolderOpen, Globe, Image as ImageIcon, ImagePlus, Lightbulb, Palette, PencilLine, ThumbsUp, MessageCircle, Paperclip, RotateCcw, Search, Settings, ShieldCheck, Sparkles, Square, SquarePen, SquareTerminal, Trash2, TriangleAlert, Undo2, Wrench, X, type LucideIcon } from 'lucide-react';
 import { Markdown } from './markdown';
 import { WKH_MARK_DARK, WKH_MARK_LIGHT } from './wkhLogo';
 import './desktop.css';
@@ -53,9 +53,84 @@ type CodeTask = { task: string; root: string; changed: string[]; undone?: boolea
 /** A web result (url) or a section of a local Markdown note (file). */
 type Source = { title: string; url?: string; file?: string };
 type Conversation = { id: string; title: string; messages: Message[]; updatedAt?: number };
-type Preferences = { temperature: number; maxTokens: number; language: string; theme: 'dark' | 'light'; reasoning: boolean; code: boolean; codeRoot: string; textSize: TextSize; translate: Translator; translateAsked: boolean; uiLanguage: 'km' | 'en'; autoSearch: boolean;
+
+export type Theme = 'dark' | 'light' | 'oled' | 'sepia' | 'forest' | 'nord';
+export type AccentColor = 'lilac' | 'sky' | 'mint' | 'peach' | 'pink' | 'butter' | 'coral' | 'teal' | 'custom';
+export type BubbleStyle = 'accent' | 'neutral';
+
+type Preferences = {
+  temperature: number;
+  maxTokens: number;
+  language: string;
+  theme: Theme;
+  accent: AccentColor;
+  customAccent: string;
+  bubbleStyle: BubbleStyle;
+  reasoning: boolean;
+  code: boolean;
+  codeRoot: string;
+  textSize: TextSize;
+  translate: Translator;
+  translateAsked: boolean;
+  uiLanguage: 'km' | 'en';
+  autoSearch: boolean;
   /** Personalisation, like Claude's and ChatGPT's: how to address the user, about them, answer style, memories. */
-  userName: string; aboutUser: string; instructions: string; responseStyle: ResponseStyle; memories: string[] };
+  userName: string;
+  aboutUser: string;
+  instructions: string;
+  responseStyle: ResponseStyle;
+  memories: string[];
+};
+
+const THEMES: { id: Theme; nameEn: string; nameKm: string; color: string; border: string }[] = [
+  { id: 'dark', nameEn: 'Dark', nameKm: 'ងងឹត', color: '#121015', border: '#2E2838' },
+  { id: 'light', nameEn: 'Light', nameKm: 'ភ្លឺ', color: '#FFFAF3', border: '#EAE3F3' },
+  { id: 'oled', nameEn: 'OLED', nameKm: 'ខ្មៅសុទ្ធ', color: '#000000', border: '#201C2B' },
+  { id: 'sepia', nameEn: 'Sepia', nameKm: 'ក្រដាសចាស់', color: '#F4EBD9', border: '#E4D7C2' },
+  { id: 'forest', nameEn: 'Forest', nameKm: 'ព្រៃបៃតង', color: '#0C1512', border: '#1F3A31' },
+  { id: 'nord', nameEn: 'Nord', nameKm: 'រងាត្រជាក់', color: '#13171F', border: '#293649' },
+];
+
+const ACCENT_PRESETS: { id: AccentColor; nameEn: string; nameKm: string; color: string }[] = [
+  { id: 'lilac', nameEn: 'Lilac', nameKm: 'ផ្កាត្របែកព្រៃ', color: '#8B6CF6' },
+  { id: 'sky', nameEn: 'Sky', nameKm: 'ផ្ទៃមេឃ', color: '#3B82F6' },
+  { id: 'mint', nameEn: 'Mint', nameKm: 'ជីអង្កាម', color: '#10B981' },
+  { id: 'peach', nameEn: 'Peach', nameKm: 'ផ្លែប៉េស', color: '#F97316' },
+  { id: 'pink', nameEn: 'Pink', nameKm: 'ផ្កាឈូក', color: '#EC4899' },
+  { id: 'butter', nameEn: 'Butter', nameKm: 'លឿងទន់', color: '#F59E0B' },
+  { id: 'coral', nameEn: 'Coral', nameKm: 'ផ្កាថ្ម', color: '#F43F5E' },
+  { id: 'teal', nameEn: 'Teal', nameKm: 'បៃតងទឹកសមុទ្រ', color: '#14B8A6' },
+];
+
+function isLightTheme(theme: Theme): boolean {
+  return theme === 'light' || theme === 'sepia';
+}
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+  const clean = hex.replace('#', '').trim();
+  if (clean.length === 3) {
+    const r = parseInt(clean[0] + clean[0], 16);
+    const g = parseInt(clean[1] + clean[1], 16);
+    const b = parseInt(clean[2] + clean[2], 16);
+    return isNaN(r) || isNaN(g) || isNaN(b) ? null : { r, g, b };
+  }
+  if (clean.length === 6) {
+    const r = parseInt(clean.slice(0, 2), 16);
+    const g = parseInt(clean.slice(2, 4), 16);
+    const b = parseInt(clean.slice(4, 6), 16);
+    return isNaN(r) || isNaN(g) || isNaN(b) ? null : { r, g, b };
+  }
+  return null;
+}
+
+function darkenRgb({ r, g, b }: { r: number; g: number; b: number }, factor = 0.35): string {
+  return `rgb(${Math.max(0, Math.round(r * (1 - factor)))}, ${Math.max(0, Math.round(g * (1 - factor)))}, ${Math.max(0, Math.round(b * (1 - factor)))})`;
+}
+
+function lightenRgb({ r, g, b }: { r: number; g: number; b: number }, factor = 0.2): string {
+  return `rgb(${Math.min(255, Math.round(r + (255 - r) * factor))}, ${Math.min(255, Math.round(g + (255 - g) * factor))}, ${Math.min(255, Math.round(b + (255 - b) * factor))})`;
+}
+
 type ResponseStyle = 'normal' | 'concise' | 'detailed' | 'formal' | 'friendly';
 const RESPONSE_STYLES: ResponseStyle[] = ['normal', 'concise', 'detailed', 'formal', 'friendly'];
 /** Better Khmer: who writes the Khmer. 'local' = NLLB on this computer, 'google' = Google Translate (online). */
@@ -75,8 +150,28 @@ const TOKEN_LIMITS = [512, 1024, 2048, 4096, 8192];
 const LENGTH_NAMES: Record<number, string> = { 512: 'Short', 1024: 'Medium', 2048: 'Long', 4096: 'Very long', 8192: 'Longest' };
 const LENGTH_NAMES_KM: Record<number, string> = { 512: 'ខ្លី', 1024: 'មធ្យម', 2048: 'វែង', 4096: 'វែងណាស់', 8192: 'វែងបំផុត' };
 type TextSize = 'small' | 'default' | 'large';
-const DEFAULT_PREFERENCES: Preferences = { temperature: 0.4, maxTokens: 2048, language: 'Auto', theme: 'dark', reasoning: false, code: false, codeRoot: '', textSize: 'default', translate: 'local', translateAsked: false, uiLanguage: 'km', autoSearch: true,
-  userName: '', aboutUser: '', instructions: '', responseStyle: 'normal', memories: [] };
+const DEFAULT_PREFERENCES: Preferences = {
+  temperature: 0.4,
+  maxTokens: 2048,
+  language: 'Auto',
+  theme: 'dark',
+  accent: 'lilac',
+  customAccent: '#8B6CF6',
+  bubbleStyle: 'accent',
+  reasoning: false,
+  code: false,
+  codeRoot: '',
+  textSize: 'default',
+  translate: 'local',
+  translateAsked: false,
+  uiLanguage: 'km',
+  autoSearch: true,
+  userName: '',
+  aboutUser: '',
+  instructions: '',
+  responseStyle: 'normal',
+  memories: []
+};
 const KHMER = /[\u1780-\u17FF]/;
 const NOTE_TEXT: Record<Note, string> = {
   error: 'Something went wrong.',
@@ -164,7 +259,10 @@ function cleanPreferences(raw: unknown): Preferences {
     temperature: Number.isFinite(temperature) ? Math.min(1.5, Math.max(0.1, temperature)) : DEFAULT_PREFERENCES.temperature,
     maxTokens: TOKEN_LIMITS.includes(Number(saved.maxTokens)) ? Number(saved.maxTokens) : DEFAULT_PREFERENCES.maxTokens,
     language: typeof saved.language === 'string' && saved.language.trim() ? saved.language.slice(0, 80) : DEFAULT_PREFERENCES.language,
-    theme: saved.theme === 'light' ? 'light' : 'dark',
+    theme: THEMES.some(t => t.id === saved.theme) ? (saved.theme as Theme) : 'dark',
+    accent: (saved.accent === 'custom' || ACCENT_PRESETS.some(a => a.id === saved.accent)) ? (saved.accent as AccentColor) : 'lilac',
+    customAccent: typeof saved.customAccent === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(saved.customAccent) ? saved.customAccent : '#8B6CF6',
+    bubbleStyle: saved.bubbleStyle === 'neutral' ? 'neutral' : 'accent',
     reasoning: saved.reasoning === true,
     code: saved.code === true,
     codeRoot: typeof saved.codeRoot === 'string' ? saved.codeRoot.slice(0, 1000) : '',
@@ -410,21 +508,19 @@ async function copyText(text: string): Promise<void> {
   if (!copied) throw new Error('Could not copy to the clipboard.');
 }
 
-// The Sulvana mark: a five-petal lotus (the towers of Angkor, seen as lotus buds) in a glass tile.
+// The Sulvana mark: a five-petal lotus (the towers of Angkor, seen as lotus buds) on a flat violet
+// "cookie", the scalloped shape used across the WKH Labs website.
 const LOTUS: [number, number, number, number][] = [[-64, 150, 40, 0.55], [64, 150, 40, 0.55], [-33, 205, 46, 0.78], [33, 205, 46, 0.78], [0, 262, 54, 1]];
 const petal = (h: number, w: number) => `M0 ${-h}C${w * 0.9} ${-h * 0.62} ${w} ${-h * 0.3} ${w * 0.55} ${-h * 0.06}C${w * 0.3} ${h * 0.02} ${-w * 0.3} ${h * 0.02} ${-w * 0.55} ${-h * 0.06}C${-w} ${-h * 0.3} ${-w * 0.9} ${-h * 0.62} 0 ${-h}Z`;
+const COOKIE = Array.from({ length: 180 }, (_, i) => {
+  const t = i / 180 * Math.PI * 2, r = 238 * (1 + 0.05 * Math.cos(12 * t)) / 1.05;
+  return (i ? 'L' : 'M') + (256 + r * Math.sin(t)).toFixed(1) + ' ' + (256 - r * Math.cos(t)).toFixed(1);
+}).join('') + 'Z';
 
 function Logo({ size }: { size: number }) {
-  const id = useId();
   return <svg className="logo" width={size} height={size} viewBox="0 0 512 512" aria-hidden="true">
-    <defs>
-      <linearGradient id={id + 'b'} x1="0.15" y1="0" x2="0.85" y2="1"><stop offset="0" stopColor="#FFB340" /><stop offset="0.48" stopColor="#FF5E7A" /><stop offset="1" stopColor="#7A5CFF" /></linearGradient>
-      <radialGradient id={id + 's'} cx="0.3" cy="0.1" r="0.9"><stop offset="0" stopColor="#fff" stopOpacity="0.55" /><stop offset="0.45" stopColor="#fff" stopOpacity="0.08" /><stop offset="1" stopColor="#fff" stopOpacity="0" /></radialGradient>
-    </defs>
-    <rect x="24" y="24" width="464" height="464" rx="108" fill={`url(#${id}b)`} />
-    <rect x="24" y="24" width="464" height="464" rx="108" fill={`url(#${id}s)`} />
-    <rect x="25.5" y="25.5" width="461" height="461" rx="106.5" fill="none" stroke="#fff" strokeOpacity="0.35" strokeWidth="3" />
-    <g transform="translate(256 392)" fill="#fff">{LOTUS.map(([angle, height, width, opacity]) => <path key={angle} d={petal(height, width)} transform={`rotate(${angle})`} opacity={opacity} />)}</g>
+    <path d={COOKIE} fill="#8B6CF6" />
+    <g transform="translate(256 386) scale(0.92)" fill="#fff">{LOTUS.map(([angle, height, width, opacity]) => <path key={angle} d={petal(height, width)} transform={`rotate(${angle})`} opacity={opacity} />)}</g>
   </svg>;
 }
 
@@ -623,7 +719,42 @@ export default function DesktopApp() {
     }, live ? 250 : 0);
     return () => window.clearTimeout(timer);
   }, [conversations, activeId, preferences]);
-  useEffect(() => { document.documentElement.dataset.theme = preferences.theme; }, [preferences.theme]);
+  useEffect(() => {
+    document.documentElement.dataset.theme = preferences.theme;
+    document.documentElement.dataset.accent = preferences.accent;
+    document.documentElement.dataset.bubbleStyle = preferences.bubbleStyle;
+
+    const style = document.documentElement.style;
+    if (preferences.accent === 'custom' && preferences.customAccent) {
+      const rgb = hexToRgb(preferences.customAccent);
+      if (rgb) {
+        const isLight = isLightTheme(preferences.theme);
+        const primary = preferences.customAccent;
+        const shade = darkenRgb(rgb, 0.35);
+        const hover = lightenRgb(rgb, 0.15);
+        const subtle = isLight ? `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.12)` : `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.2)`;
+        const text = isLight ? darkenRgb(rgb, 0.25) : lightenRgb(rgb, 0.45);
+
+        style.setProperty('--accent-primary', primary);
+        style.setProperty('--accent-hover', hover);
+        style.setProperty('--accent-subtle', subtle);
+        style.setProperty('--accent-text', text);
+        style.setProperty('--bubble-shade', shade);
+        style.setProperty('--shade-accent', shade);
+        style.setProperty('--btn-shade', isLight ? primary : shade);
+        style.setProperty('--bg-user-msg', primary);
+      }
+    } else {
+      style.removeProperty('--accent-primary');
+      style.removeProperty('--accent-hover');
+      style.removeProperty('--accent-subtle');
+      style.removeProperty('--accent-text');
+      style.removeProperty('--bubble-shade');
+      style.removeProperty('--shade-accent');
+      style.removeProperty('--btn-shade');
+      style.removeProperty('--bg-user-msg');
+    }
+  }, [preferences.theme, preferences.accent, preferences.customAccent, preferences.bubbleStyle]);
   useEffect(() => { setApprovalError(''); if (approval) setDialog(null); }, [approval?.id]);
   useEffect(() => { if (followReply.current) bottom.current?.scrollIntoView({ block: 'end' }); }, [active.messages]);
   useEffect(() => { followReply.current = true; bottom.current?.scrollIntoView({ block: 'end' }); }, [activeId]);
@@ -1243,7 +1374,7 @@ export default function DesktopApp() {
           })}
         </section>);
       })()}</nav>
-      <div className="sidebar-footer"><button type="button" onClick={() => setDialog('tools')}><ShieldCheck size={15} /> {L('Tools', 'ឧបករណ៍')}</button><div className="maker" title="Sulvana is made by WKH Labs: Wisdom · Khmer · Heritage"><img src={preferences.theme === 'light' ? WKH_MARK_LIGHT : WKH_MARK_DARK} alt="" /><div><strong>WKH Labs</strong><span>Wisdom · Khmer · Heritage</span></div></div></div>
+      <div className="sidebar-footer"><button type="button" onClick={() => setDialog('tools')}><ShieldCheck size={15} /> {L('Tools', 'ឧបករណ៍')}</button><div className="maker" title="Sulvana is made by WKH Labs: Wisdom · Khmer · Heritage"><img src={isLightTheme(preferences.theme) ? WKH_MARK_LIGHT : WKH_MARK_DARK} alt="" /><div><strong>WKH Labs</strong><span>Wisdom · Khmer · Heritage</span></div></div></div>
     </aside>
     <main className="workspace" ref={workspace}>
       <header className="topbar">
@@ -1544,20 +1675,91 @@ export default function DesktopApp() {
               onClick={() => setPreferences(current => ({ ...current, textSize: size }))}>{size === 'small' ? L('Small', 'តូច') : size === 'default' ? L('Default', 'ធម្មតា') : L('Large', 'ធំ')}</button>)}
           </div>
         </div>
+      </div>
+      <div className="form-heading">{L('Color & Appearance', 'ពណ៌ និងរូបរាង')}</div>
+      <div className="form-group">
+        <div className="customization-section">
+          <span className="customization-label">{L('Base theme', 'រូបរាងមូលដ្ឋាន')}</span>
+          <div className="theme-grid" role="radiogroup" aria-label={L('Base theme', 'រូបរាងមូលដ្ឋាន')}>
+            {THEMES.map(theme => (
+              <button
+                type="button"
+                key={theme.id}
+                role="radio"
+                aria-checked={preferences.theme === theme.id}
+                className={`theme-card theme-${theme.id} ${preferences.theme === theme.id ? 'active' : ''}`}
+                onClick={() => setPreferences(current => ({ ...current, theme: theme.id }))}
+                title={L(theme.nameEn, theme.nameKm)}
+              >
+                <span className="theme-preview-dot" style={{ backgroundColor: theme.color, borderColor: theme.border }} />
+                <span className="theme-name">{L(theme.nameEn, theme.nameKm)}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="customization-section">
+          <span className="customization-label">{L('Accent color', 'ពណ៌សង្កត់')}</span>
+          <div className="accent-palette" role="radiogroup" aria-label={L('Accent color', 'ពណ៌សង្កត់')}>
+            {ACCENT_PRESETS.map(accent => {
+              const active = preferences.accent === accent.id;
+              return (
+                <button
+                  type="button"
+                  key={accent.id}
+                  role="radio"
+                  aria-checked={active}
+                  className={`accent-chip ${active ? 'active' : ''}`}
+                  onClick={() => setPreferences(current => ({ ...current, accent: accent.id }))}
+                  title={L(accent.nameEn, accent.nameKm)}
+                >
+                  <span className="accent-chip-inner" style={{ backgroundColor: accent.color }}>
+                    {active && <Check size={14} color="#FFFFFF" strokeWidth={3} />}
+                  </span>
+                </button>
+              );
+            })}
+            <div className={`accent-chip custom-chip ${preferences.accent === 'custom' ? 'active' : ''}`} title={L('Custom Color', 'ពណ៌ផ្ទាល់ខ្លួន')}>
+              <span className="accent-chip-inner" style={{ backgroundColor: preferences.customAccent || '#8B6CF6' }}>
+                <Palette size={14} className="custom-chip-icon" />
+              </span>
+              <input
+                type="color"
+                className="custom-color-input"
+                aria-label={L('Pick custom accent color', 'ជ្រើសរើសពណ៌ផ្ទាល់ខ្លួន')}
+                value={preferences.customAccent || '#8B6CF6'}
+                onChange={event => {
+                  const val = event.target.value;
+                  setPreferences(current => ({ ...current, accent: 'custom', customAccent: val }));
+                }}
+              />
+            </div>
+          </div>
+        </div>
+
         <div className="form-row">
-          <span id="setting-appearance">{L('Appearance', 'រូបរាង')}</span>
-          <div className="segmented" role="radiogroup" aria-labelledby="setting-appearance">
-            {(['light', 'dark'] as const).map(theme => <button type="button" key={theme} role="radio" aria-checked={preferences.theme === theme}
-              onClick={() => setPreferences(current => ({ ...current, theme }))}>{theme === 'light' ? L('Light', 'ភ្លឺ') : L('Dark', 'ងងឹត')}</button>)}
+          <span id="setting-bubble-style">{L('Chat bubbles', 'ប្រអប់សារ')}</span>
+          <div className="segmented" role="radiogroup" aria-labelledby="setting-bubble-style">
+            {(['accent', 'neutral'] as const).map(style => (
+              <button
+                type="button"
+                key={style}
+                role="radio"
+                aria-checked={preferences.bubbleStyle === style}
+                onClick={() => setPreferences(current => ({ ...current, bubbleStyle: style }))}
+              >
+                {style === 'accent' ? L('Accent', 'ពណ៌សង្កត់') : L('Neutral', 'ស្រទន់')}
+              </button>
+            ))}
           </div>
         </div>
       </div>
       <div className="about-row">
-        <img src={preferences.theme === 'light' ? WKH_MARK_LIGHT : WKH_MARK_DARK} alt="WKH Labs" />
+        <img src={isLightTheme(preferences.theme) ? WKH_MARK_LIGHT : WKH_MARK_DARK} alt="WKH Labs" />
         <div><strong>{modelName} by WKH Labs</strong><span>Wisdom · Khmer · Heritage{baseModel ? ` · built on ${baseModel}` : ''}</span></div>
       </div>
       <div className="modal-actions spread">
-        <button type="button" onClick={() => { setPreferences(current => ({ ...DEFAULT_PREFERENCES, theme: current.theme, translate: current.translate, translateAsked: current.translateAsked, uiLanguage: current.uiLanguage,
+        <button type="button" onClick={() => { setPreferences(current => ({ ...DEFAULT_PREFERENCES, theme: current.theme, accent: current.accent, customAccent: current.customAccent, bubbleStyle: current.bubbleStyle, translate: current.translate, translateAsked: current.translateAsked, uiLanguage: current.uiLanguage,
           userName: current.userName, aboutUser: current.aboutUser, instructions: current.instructions, responseStyle: current.responseStyle, memories: current.memories })); setCustomLanguage(false); }}>{L('Reset to Defaults', 'កំណត់ដើមវិញ')}</button>
         <button type="button" className="approve-button" onClick={() => setDialog(null)}>{L('Done', 'រួចរាល់')}</button>
       </div>

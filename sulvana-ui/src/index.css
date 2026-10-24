@@ -1,125 +1,556 @@
 @import "tailwindcss";
 
-/* Design tokens. The palette follows Apple's system colours (the apple.com blue, the system
-   greys and label colours, hairline separators), adjusted only where a pair would otherwise
-   fall below 4.5:1 for text. */
+/* Design tokens, shared with the WKH Labs website: flat pastel colour, no gradients or blur, chunky
+   controls that sit on a hard flat shadow. Dark is the default: one soft near-black, with colour only
+   in the pastel accents. Text pairs keep at least 4.5:1. */
 :root,
 [data-theme="dark"] {
-  --bg-app-canvas: #1C1C1E;
-  --bg-app-canvas-clear: rgba(28, 28, 30, 0);
-  --bg-sidebar: #262628;
-  --bg-elevated: #2C2C2E;
-  --bg-input: #2C2C2E;
-  --bg-user-msg: #0071E3;
-  --bg-code-block: #151517;
-  --bg-code-header: #222224;
-  --bg-sheet: #2C2C2E;
-  --bg-group: #3A3A3C;
-  --bg-segment-selected: #636366;
+  --bg-app-canvas: #121015;
+  --bg-app-canvas-clear: rgba(18, 16, 21, 0);
+  --bg-sidebar: #1F1B28;
+  --bg-elevated: #1F1B28;
+  --bg-input: #1F1B28;
+  --bg-user-msg: #8B6CF6;
+  --bg-code-block: #17141D;
+  --bg-code-header: #231F2C;
+  --bg-sheet: #1F1B28;
+  --bg-group: #2A2534;
+  --bg-segment-selected: #3A3447;
 
-  --text-primary: #F5F5F7;
-  --text-secondary: #AEAEB2;
-  --text-muted: #98989D;
+  --text-primary: #F4F2F8;
+  --text-secondary: #BAB5C7;
+  --text-muted: #A39EB1;
 
-  --accent-primary: #0071E3;
-  --accent-hover: #0066CC;
-  --accent-subtle: rgba(10, 132, 255, 0.18);
-  --accent-text: #409CFF;
+  --accent-primary: #8B6CF6;
+  --accent-hover: #9B80F8;
+  --accent-subtle: #2B2540;
+  --accent-text: #C4B2FF;
   --accent-text-on-solid: #FFFFFF;
 
-  --border-subtle: #38383A;
-  --border-focus: #409CFF;
-  --focus-halo: rgba(64, 156, 255, 0.32);
+  --border-subtle: #2E2838;
+  --border-focus: #B9A2FF;
+  --focus-halo: rgba(185, 162, 255, 0.3);
 
-  /* Translucent grey fills sit correctly on any surface, like Apple's system fills. */
-  --fill: rgba(118, 118, 128, 0.24);
-  --fill-hover: rgba(118, 118, 128, 0.36);
-  --fill-selected: rgba(118, 118, 128, 0.32);
+  --fill: #262130;
+  --fill-hover: #302A3C;
+  --fill-selected: #352E47;
 
-  --status-ready: #30D158;
-  --status-busy: #FF9F0A;
-  --status-warn: #FF9F0A;
-  --status-error: #FF6961;
-  --error-subtle: rgba(255, 69, 58, 0.14);
-  --danger-fill: #D70015;
-  --range-track: #48484A;
+  --status-ready: #6FDBA3;
+  --status-busy: #FFB45E;
+  --status-warn: #FFB45E;
+  --status-error: #FF8A85;
+  --error-subtle: #3A2028;
+  --danger-fill: #E5484D;
+  --range-track: #3A3447;
 
-  /* Liquid Glass: a softly tinted backdrop with translucent, blurred panels floating on it. */
-  --canvas-base: #0B0D12;
-  --canvas-veil: rgba(11, 13, 18, 0.78);
-  --mesh: radial-gradient(1100px 680px at 8% -12%, rgba(10, 132, 255, 0.30), transparent 62%),
-    radial-gradient(900px 700px at 108% 6%, rgba(94, 92, 230, 0.26), transparent 62%),
-    radial-gradient(900px 760px at 80% 112%, rgba(255, 94, 122, 0.15), transparent 60%),
-    radial-gradient(700px 600px at -6% 106%, rgba(48, 209, 188, 0.13), transparent 60%);
-  --glass: rgba(46, 46, 54, 0.52);
-  --glass-strong: rgba(40, 40, 48, 0.74);
-  --glass-border: rgba(255, 255, 255, 0.13);
-  --glass-shine: inset 0 1px 0 rgba(255, 255, 255, 0.20), inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
-  --glass-shadow: 0 10px 34px rgba(0, 0, 0, 0.32);
+  /* the pastel family, and each colour's harder partner used for flat shadows */
+  --pink: #F191BB; --lilac: #AB95F7; --butter: #F2C94C; --mint: #6FD3A0; --sky: #7FBDF5; --peach: #F59D74;
+  --tile: #1F1B28;
+  --shade-pink: #B9487F; --shade-lilac: #6B55D6; --shade-butter: #B08A1E; --shade-mint: #2B9163; --shade-sky: #2F72BF; --shade-peach: #C0643C;
+  --shade-accent: var(--shade-lilac);
+  --ghost-shade: #0A090D;
+  --btn-bg: #F4F2F8; --btn-fg: #1D1D1F; --btn-shade: #7A55F5;
+  --bubble-shade: #5B42C9;
+  --dot: rgba(255, 255, 255, 0.05);
 
-  --backdrop: rgba(0, 0, 0, 0.42);
-  --shadow-panel: 0 0 0 0.5px rgba(255, 255, 255, 0.14), 0 24px 70px rgba(0, 0, 0, 0.55);
-  --shadow-field: 0 1px 2px rgba(0, 0, 0, 0.3);
+  /* names kept from the old glass theme so every panel picks up the flat look */
+  --canvas-base: #121015;
+  --canvas-veil: #121015;
+  --mesh: none;
+  --glass: #1F1B28;
+  --glass-strong: #1F1B28;
+  --glass-border: #2E2838;
+  --glass-shine: 0 0 0 0 transparent;
+  --glass-shadow: 0 4px 0 var(--ghost-shade);
+
+  --backdrop: rgba(8, 7, 10, 0.6);
+  --shadow-panel: 0 8px 0 var(--ghost-shade);
+  --shadow-field: none;
 
   color-scheme: dark;
 }
 
 [data-theme="light"] {
-  --bg-app-canvas: #FFFFFF;
-  --bg-app-canvas-clear: rgba(255, 255, 255, 0);
-  --bg-sidebar: #F5F5F7;
+  --bg-app-canvas: #FFFAF3;
+  --bg-app-canvas-clear: rgba(255, 250, 243, 0);
+  --bg-sidebar: #FFFFFF;
   --bg-elevated: #FFFFFF;
   --bg-input: #FFFFFF;
-  --bg-user-msg: #0071E3;
-  --bg-code-block: #F5F5F7;
-  --bg-code-header: #EBEBED;
-  --bg-sheet: #F5F5F7;
+  --bg-user-msg: #8B6CF6;
+  --bg-code-block: #F7F2EA;
+  --bg-code-header: #EFE8DC;
+  --bg-sheet: #FFFAF3;
   --bg-group: #FFFFFF;
   --bg-segment-selected: #FFFFFF;
 
   --text-primary: #1D1D1F;
-  --text-secondary: #48484D;
-  --text-muted: #5C5C62;
+  --text-secondary: #55545C;
+  --text-muted: #6E6E73;
 
-  --accent-primary: #0071E3;
-  --accent-hover: #0066CC;
-  --accent-subtle: rgba(0, 113, 227, 0.1);
-  --accent-text: #0058B8;
+  --accent-primary: #7A55F5;
+  --accent-hover: #6A45E5;
+  --accent-subtle: #ECE4FF;
+  --accent-text: #6141D8;
   --accent-text-on-solid: #FFFFFF;
 
-  --border-subtle: #D2D2D7;
-  --border-focus: #0071E3;
-  --focus-halo: rgba(0, 113, 227, 0.25);
+  --border-subtle: #EAE3F3;
+  --border-focus: #7A55F5;
+  --focus-halo: rgba(122, 85, 245, 0.22);
 
-  --fill: rgba(118, 118, 128, 0.12);
-  --fill-hover: rgba(118, 118, 128, 0.2);
-  --fill-selected: rgba(118, 118, 128, 0.18);
+  --fill: #F3EEFB;
+  --fill-hover: #EAE2FA;
+  --fill-selected: #E3D8FF;
 
-  --status-ready: #248A3D;
-  --status-busy: #C93400;
-  --status-warn: #C93400;
-  --status-error: #D70015;
-  --error-subtle: rgba(215, 0, 21, 0.07);
-  --danger-fill: #D70015;
-  --range-track: #D2D2D7;
+  --status-ready: #179C5C;
+  --status-busy: #C9590A;
+  --status-warn: #C9590A;
+  --status-error: #D1243A;
+  --error-subtle: #FFE1E6;
+  --danger-fill: #D1243A;
+  --range-track: #E3DBF3;
 
-  --canvas-base: #EAF0F6;
-  --canvas-veil: rgba(234, 240, 246, 0.82);
-  --mesh: radial-gradient(1100px 680px at 8% -12%, rgba(64, 156, 255, 0.22), transparent 62%),
-    radial-gradient(900px 700px at 108% 6%, rgba(100, 210, 255, 0.24), transparent 62%),
-    radial-gradient(900px 760px at 80% 112%, rgba(255, 170, 120, 0.16), transparent 60%),
-    radial-gradient(700px 600px at -6% 106%, rgba(110, 215, 195, 0.18), transparent 60%);
-  --glass: rgba(255, 255, 255, 0.56);
-  --glass-strong: rgba(255, 255, 255, 0.78);
-  --glass-border: rgba(255, 255, 255, 0.75);
-  --glass-shine: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 0 0 0.5px rgba(255, 255, 255, 0.5);
-  --glass-shadow: 0 10px 34px rgba(30, 60, 110, 0.14);
+  --pink: #FF9FC6; --lilac: #B9A2FF; --butter: #FFD45E; --mint: #7FDCAB; --sky: #8CC8FF; --peach: #FFAA80;
+  --tile: #FFFFFF;
+  --shade-pink: #FFACCB; --shade-lilac: #C6B3FF; --shade-butter: #FFD56A; --shade-mint: #93DEB6; --shade-sky: #A6CDFF; --shade-peach: #FFB994;
+  --shade-accent: var(--shade-lilac);
+  --ghost-shade: #E8E0F4;
+  --btn-bg: #1D1D1F; --btn-fg: #FFFFFF; --btn-shade: #B9A2FF;
+  --bubble-shade: #6A4FD4;
+  --dot: rgba(29, 29, 31, 0.07);
 
-  --backdrop: rgba(20, 30, 50, 0.22);
-  --shadow-panel: 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 24px 70px rgba(0, 0, 0, 0.22);
-  --shadow-field: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --canvas-base: #FFFAF3;
+  --canvas-veil: #FFFAF3;
+  --mesh: none;
+  --glass: #FFFFFF;
+  --glass-strong: #FFFFFF;
+  --glass-border: #EAE3F3;
+  --glass-shine: 0 0 0 0 transparent;
+  --glass-shadow: 0 4px 0 var(--ghost-shade);
+
+  --backdrop: rgba(29, 29, 31, 0.3);
+  --shadow-panel: 0 8px 0 var(--ghost-shade);
+  --shadow-field: none;
 
   color-scheme: light;
+}
+
+[data-theme="oled"] {
+  --bg-app-canvas: #000000;
+  --bg-app-canvas-clear: rgba(0, 0, 0, 0);
+  --bg-sidebar: #0C0B0F;
+  --bg-elevated: #0C0B0F;
+  --bg-input: #0C0B0F;
+  --bg-user-msg: #8B6CF6;
+  --bg-code-block: #060508;
+  --bg-code-header: #121017;
+  --bg-sheet: #0C0B0F;
+  --bg-group: #14121A;
+  --bg-segment-selected: #221D2C;
+
+  --text-primary: #FFFFFF;
+  --text-secondary: #B0ABC0;
+  --text-muted: #8E879F;
+
+  --accent-primary: #8B6CF6;
+  --accent-hover: #9B80F8;
+  --accent-subtle: #231C38;
+  --accent-text: #C4B2FF;
+  --accent-text-on-solid: #FFFFFF;
+
+  --border-subtle: #201C2B;
+  --border-focus: #B9A2FF;
+  --focus-halo: rgba(185, 162, 255, 0.3);
+
+  --fill: #15131C;
+  --fill-hover: #1E1B27;
+  --fill-selected: #282434;
+
+  --status-ready: #6FDBA3;
+  --status-busy: #FFB45E;
+  --status-warn: #FFB45E;
+  --status-error: #FF8A85;
+  --error-subtle: #2F171E;
+  --danger-fill: #E5484D;
+  --range-track: #262134;
+
+  --pink: #F191BB; --lilac: #AB95F7; --butter: #F2C94C; --mint: #6FD3A0; --sky: #7FBDF5; --peach: #F59D74;
+  --tile: #0C0B0F;
+  --shade-pink: #B9487F; --shade-lilac: #6B55D6; --shade-butter: #B08A1E; --shade-mint: #2B9163; --shade-sky: #2F72BF; --shade-peach: #C0643C;
+  --shade-accent: var(--shade-lilac);
+  --ghost-shade: #000000;
+  --btn-bg: #FFFFFF; --btn-fg: #000000; --btn-shade: #7A55F5;
+  --bubble-shade: #5B42C9;
+  --dot: rgba(255, 255, 255, 0.04);
+
+  --canvas-base: #000000;
+  --canvas-veil: #000000;
+  --mesh: none;
+  --glass: #0C0B0F;
+  --glass-strong: #0C0B0F;
+  --glass-border: #201C2B;
+  --glass-shine: 0 0 0 0 transparent;
+  --glass-shadow: 0 4px 0 var(--ghost-shade);
+
+  --backdrop: rgba(0, 0, 0, 0.75);
+  --shadow-panel: 0 8px 0 var(--ghost-shade);
+  --shadow-field: none;
+
+  color-scheme: dark;
+}
+
+[data-theme="sepia"] {
+  --bg-app-canvas: #F4EBD9;
+  --bg-app-canvas-clear: rgba(244, 235, 217, 0);
+  --bg-sidebar: #FAF4E8;
+  --bg-elevated: #FAF4E8;
+  --bg-input: #FAF4E8;
+  --bg-user-msg: #8B6CF6;
+  --bg-code-block: #ECE1CD;
+  --bg-code-header: #E3D5BE;
+  --bg-sheet: #FAF4E8;
+  --bg-group: #FAF4E8;
+  --bg-segment-selected: #EFE4D0;
+
+  --text-primary: #382F24;
+  --text-secondary: #6B5D4B;
+  --text-muted: #8E7E6A;
+
+  --accent-primary: #7A55F5;
+  --accent-hover: #6A45E5;
+  --accent-subtle: #EDE4FF;
+  --accent-text: #6141D8;
+  --accent-text-on-solid: #FFFFFF;
+
+  --border-subtle: #E4D7C2;
+  --border-focus: #7A55F5;
+  --focus-halo: rgba(122, 85, 245, 0.22);
+
+  --fill: #EFE4D0;
+  --fill-hover: #E5D9C3;
+  --fill-selected: #DCCEB6;
+
+  --status-ready: #179C5C;
+  --status-busy: #C9590A;
+  --status-warn: #C9590A;
+  --status-error: #D1243A;
+  --error-subtle: #FBE2E5;
+  --danger-fill: #D1243A;
+  --range-track: #DECDB3;
+
+  --pink: #EE98BE; --lilac: #B098FA; --butter: #F7CB52; --mint: #76D1A0; --sky: #83BEF5; --peach: #F6A177;
+  --tile: #FAF4E8;
+  --shade-pink: #E288AF; --shade-lilac: #9E84F0; --shade-butter: #E5B83B; --shade-mint: #62BD8D; --shade-sky: #70ADE5; --shade-peach: #E48F65;
+  --shade-accent: var(--shade-lilac);
+  --ghost-shade: #DECDB3;
+  --btn-bg: #382F24; --btn-fg: #FAF4E8; --btn-shade: #9E84F0;
+  --bubble-shade: #6A4FD4;
+  --dot: rgba(56, 47, 36, 0.07);
+
+  --canvas-base: #F4EBD9;
+  --canvas-veil: #F4EBD9;
+  --mesh: none;
+  --glass: #FAF4E8;
+  --glass-strong: #FAF4E8;
+  --glass-border: #E4D7C2;
+  --glass-shine: 0 0 0 0 transparent;
+  --glass-shadow: 0 4px 0 var(--ghost-shade);
+
+  --backdrop: rgba(45, 36, 26, 0.35);
+  --shadow-panel: 0 8px 0 var(--ghost-shade);
+  --shadow-field: none;
+
+  color-scheme: light;
+}
+
+[data-theme="forest"] {
+  --bg-app-canvas: #0C1512;
+  --bg-app-canvas-clear: rgba(12, 21, 18, 0);
+  --bg-sidebar: #14231E;
+  --bg-elevated: #14231E;
+  --bg-input: #14231E;
+  --bg-user-msg: #10B981;
+  --bg-code-block: #0F1B17;
+  --bg-code-header: #1B2F29;
+  --bg-sheet: #14231E;
+  --bg-group: #1A3029;
+  --bg-segment-selected: #244239;
+
+  --text-primary: #EEF7F2;
+  --text-secondary: #A6C4B8;
+  --text-muted: #799B8E;
+
+  --accent-primary: #10B981;
+  --accent-hover: #34D399;
+  --accent-subtle: #19382D;
+  --accent-text: #6EE7B7;
+  --accent-text-on-solid: #FFFFFF;
+
+  --border-subtle: #1F3A31;
+  --border-focus: #6EE7B7;
+  --focus-halo: rgba(110, 231, 183, 0.28);
+
+  --fill: #192D26;
+  --fill-hover: #213B32;
+  --fill-selected: #29483D;
+
+  --status-ready: #6FDBA3;
+  --status-busy: #FFB45E;
+  --status-warn: #FFB45E;
+  --status-error: #FF8A85;
+  --error-subtle: #3A2024;
+  --danger-fill: #E5484D;
+  --range-track: #244239;
+
+  --pink: #F191BB; --lilac: #AB95F7; --butter: #F2C94C; --mint: #6FD3A0; --sky: #7FBDF5; --peach: #F59D74;
+  --tile: #14231E;
+  --shade-pink: #B9487F; --shade-lilac: #6B55D6; --shade-butter: #B08A1E; --shade-mint: #2B9163; --shade-sky: #2F72BF; --shade-peach: #C0643C;
+  --shade-accent: var(--shade-mint);
+  --ghost-shade: #060B09;
+  --btn-bg: #EEF7F2; --btn-fg: #0C1512; --btn-shade: #059669;
+  --bubble-shade: #065F46;
+  --dot: rgba(238, 247, 242, 0.05);
+
+  --canvas-base: #0C1512;
+  --canvas-veil: #0C1512;
+  --mesh: none;
+  --glass: #14231E;
+  --glass-strong: #14231E;
+  --glass-border: #1F3A31;
+  --glass-shine: 0 0 0 0 transparent;
+  --glass-shadow: 0 4px 0 var(--ghost-shade);
+
+  --backdrop: rgba(6, 11, 9, 0.65);
+  --shadow-panel: 0 8px 0 var(--ghost-shade);
+  --shadow-field: none;
+
+  color-scheme: dark;
+}
+
+[data-theme="nord"] {
+  --bg-app-canvas: #13171F;
+  --bg-app-canvas-clear: rgba(19, 23, 31, 0);
+  --bg-sidebar: #1C2330;
+  --bg-elevated: #1C2330;
+  --bg-input: #1C2330;
+  --bg-user-msg: #3B82F6;
+  --bg-code-block: #161C26;
+  --bg-code-header: #232B3B;
+  --bg-sheet: #1C2330;
+  --bg-group: #252F40;
+  --bg-segment-selected: #334057;
+
+  --text-primary: #EDF2F7;
+  --text-secondary: #A4B3C6;
+  --text-muted: #7A8CA3;
+
+  --accent-primary: #3B82F6;
+  --accent-hover: #60A5FA;
+  --accent-subtle: #202F49;
+  --accent-text: #93C5FD;
+  --accent-text-on-solid: #FFFFFF;
+
+  --border-subtle: #293649;
+  --border-focus: #93C5FD;
+  --focus-halo: rgba(147, 197, 253, 0.28);
+
+  --fill: #222B3B;
+  --fill-hover: #2B374C;
+  --fill-selected: #35445E;
+
+  --status-ready: #6FDBA3;
+  --status-busy: #FFB45E;
+  --status-warn: #FFB45E;
+  --status-error: #FF8A85;
+  --error-subtle: #3A2028;
+  --danger-fill: #E5484D;
+  --range-track: #334057;
+
+  --pink: #F191BB; --lilac: #AB95F7; --butter: #F2C94C; --mint: #6FD3A0; --sky: #7FBDF5; --peach: #F59D74;
+  --tile: #1C2330;
+  --shade-pink: #B9487F; --shade-lilac: #6B55D6; --shade-butter: #B08A1E; --shade-mint: #2B9163; --shade-sky: #2F72BF; --shade-peach: #C0643C;
+  --shade-accent: var(--shade-sky);
+  --ghost-shade: #0A0D12;
+  --btn-bg: #EDF2F7; --btn-fg: #13171F; --btn-shade: #2563EB;
+  --bubble-shade: #1D4ED8;
+  --dot: rgba(237, 242, 247, 0.05);
+
+  --canvas-base: #13171F;
+  --canvas-veil: #13171F;
+  --mesh: none;
+  --glass: #1C2330;
+  --glass-strong: #1C2330;
+  --glass-border: #293649;
+  --glass-shine: 0 0 0 0 transparent;
+  --glass-shadow: 0 4px 0 var(--ghost-shade);
+
+  --backdrop: rgba(10, 13, 18, 0.65);
+  --shadow-panel: 0 8px 0 var(--ghost-shade);
+  --shadow-field: none;
+
+  color-scheme: dark;
+}
+
+/* Accent Palettes across Dark and Light Base Themes */
+[data-accent="sky"] {
+  --accent-primary: #3B82F6;
+  --accent-hover: #60A5FA;
+  --accent-subtle: rgba(59, 130, 246, 0.18);
+  --accent-text: #93C5FD;
+  --bg-user-msg: #3B82F6;
+  --bubble-shade: #1D4ED8;
+  --shade-accent: var(--shade-sky);
+  --btn-shade: #2563EB;
+}
+[data-theme="light"][data-accent="sky"],
+[data-theme="sepia"][data-accent="sky"] {
+  --accent-primary: #2563EB;
+  --accent-hover: #1D4ED8;
+  --accent-subtle: #EFF6FF;
+  --accent-text: #1E40AF;
+  --bg-user-msg: #2563EB;
+  --bubble-shade: #1E3A8A;
+  --shade-accent: #93C5FD;
+  --btn-shade: #93C5FD;
+}
+
+[data-accent="mint"] {
+  --accent-primary: #10B981;
+  --accent-hover: #34D399;
+  --accent-subtle: rgba(16, 185, 129, 0.18);
+  --accent-text: #6EE7B7;
+  --bg-user-msg: #10B981;
+  --bubble-shade: #047857;
+  --shade-accent: var(--shade-mint);
+  --btn-shade: #059669;
+}
+[data-theme="light"][data-accent="mint"],
+[data-theme="sepia"][data-accent="mint"] {
+  --accent-primary: #059669;
+  --accent-hover: #047857;
+  --accent-subtle: #ECFDF5;
+  --accent-text: #065F46;
+  --bg-user-msg: #059669;
+  --bubble-shade: #064E3B;
+  --shade-accent: #6EE7B7;
+  --btn-shade: #6EE7B7;
+}
+
+[data-accent="peach"] {
+  --accent-primary: #F97316;
+  --accent-hover: #FB923C;
+  --accent-subtle: rgba(249, 115, 22, 0.18);
+  --accent-text: #FDBA74;
+  --bg-user-msg: #F97316;
+  --bubble-shade: #C2410C;
+  --shade-accent: var(--shade-peach);
+  --btn-shade: #EA580C;
+}
+[data-theme="light"][data-accent="peach"],
+[data-theme="sepia"][data-accent="peach"] {
+  --accent-primary: #EA580C;
+  --accent-hover: #C2410C;
+  --accent-subtle: #FFF7ED;
+  --accent-text: #9A3412;
+  --bg-user-msg: #EA580C;
+  --bubble-shade: #7C2D12;
+  --shade-accent: #FDBA74;
+  --btn-shade: #FDBA74;
+}
+
+[data-accent="pink"] {
+  --accent-primary: #EC4899;
+  --accent-hover: #F472B6;
+  --accent-subtle: rgba(236, 72, 153, 0.18);
+  --accent-text: #F9A8D4;
+  --bg-user-msg: #EC4899;
+  --bubble-shade: #BE185D;
+  --shade-accent: var(--shade-pink);
+  --btn-shade: #DB2777;
+}
+[data-theme="light"][data-accent="pink"],
+[data-theme="sepia"][data-accent="pink"] {
+  --accent-primary: #DB2777;
+  --accent-hover: #BE185D;
+  --accent-subtle: #FDF2F8;
+  --accent-text: #9D174D;
+  --bg-user-msg: #DB2777;
+  --bubble-shade: #831843;
+  --shade-accent: #F9A8D4;
+  --btn-shade: #F9A8D4;
+}
+
+[data-accent="butter"] {
+  --accent-primary: #F59E0B;
+  --accent-hover: #FBBF24;
+  --accent-subtle: rgba(245, 158, 11, 0.18);
+  --accent-text: #FDE68A;
+  --bg-user-msg: #D97706;
+  --bubble-shade: #92400E;
+  --shade-accent: var(--shade-butter);
+  --btn-shade: #D97706;
+}
+[data-theme="light"][data-accent="butter"],
+[data-theme="sepia"][data-accent="butter"] {
+  --accent-primary: #D97706;
+  --accent-hover: #B45309;
+  --accent-subtle: #FFFBEB;
+  --accent-text: #78350F;
+  --bg-user-msg: #D97706;
+  --bubble-shade: #78350F;
+  --shade-accent: #FDE68A;
+  --btn-shade: #FDE68A;
+}
+
+[data-accent="coral"] {
+  --accent-primary: #F43F5E;
+  --accent-hover: #FB7185;
+  --accent-subtle: rgba(244, 63, 94, 0.18);
+  --accent-text: #FECDD3;
+  --bg-user-msg: #F43F5E;
+  --bubble-shade: #BE123C;
+  --shade-accent: #E11D48;
+  --btn-shade: #E11D48;
+}
+[data-theme="light"][data-accent="coral"],
+[data-theme="sepia"][data-accent="coral"] {
+  --accent-primary: #E11D48;
+  --accent-hover: #BE123C;
+  --accent-subtle: #FFF1F2;
+  --accent-text: #881337;
+  --bg-user-msg: #E11D48;
+  --bubble-shade: #881337;
+  --shade-accent: #FECDD3;
+  --btn-shade: #FECDD3;
+}
+
+[data-accent="teal"] {
+  --accent-primary: #14B8A6;
+  --accent-hover: #2DD4BF;
+  --accent-subtle: rgba(20, 184, 166, 0.18);
+  --accent-text: #99F6E4;
+  --bg-user-msg: #0D9488;
+  --bubble-shade: #0F766E;
+  --shade-accent: #0D9488;
+  --btn-shade: #0D9488;
+}
+[data-theme="light"][data-accent="teal"],
+[data-theme="sepia"][data-accent="teal"] {
+  --accent-primary: #0D9488;
+  --accent-hover: #0F766E;
+  --accent-subtle: #F0FDFA;
+  --accent-text: #134E4A;
+  --bg-user-msg: #0D9488;
+  --bubble-shade: #115E59;
+  --shade-accent: #99F6E4;
+  --btn-shade: #99F6E4;
+}
+
+/* Chat bubble styling: accent vs neutral */
+[data-bubble-style="neutral"] .message.user {
+  background: var(--bg-group);
+  color: var(--text-primary);
+  border: 1.5px solid var(--border-subtle);
+  box-shadow: 0 3px 0 var(--ghost-shade);
 }
 
 :root {
@@ -127,6 +558,9 @@
      Adwaita Sans that ships with this desktop, then script-specific Noto faces. */
   --font-sans: "SF Pro Text", "SF Pro Display", "Inter", "Adwaita Sans", -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Noto Sans", "Noto Sans Khmer", "Noto Sans Arabic", "Noto Sans SC", "Noto Sans JP", system-ui, sans-serif;
   --font-mono: "SF Mono", SFMono-Regular, Menlo, "DejaVu Sans Mono", "Adwaita Mono", ui-monospace, monospace;
+  /* Apple's display cut for headlines and SF Rounded for the playful labels, as on the website */
+  --font-display: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Inter Display", "Inter", "Adwaita Sans", "Noto Sans Khmer", system-ui, sans-serif;
+  --font-rounded: ui-rounded, "SF Pro Rounded", "Nunito", var(--font-sans);
 
   /* Weights. Sulvana's WebView draws variable fonts in their regular weight only, so medium,
      semibold and bold are produced with a hairline stroke in the text colour. Sizes are in em
@@ -137,6 +571,7 @@
 
   --glass-blur: saturate(180%) blur(30px);
   --spring: cubic-bezier(0.22, 1, 0.36, 1);
+  --bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 /* The JavaFX fallback window claims to blur but does not, so its panels are opaque. */
