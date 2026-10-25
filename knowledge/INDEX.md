@@ -17,5 +17,5 @@ here describing when it should be used; a note without a line is still listed, b
 - khmer-style.md: natural Khmer phrasing for greetings, politeness, connecting words, punctuation and modern technical terms.
 - online-safety.md: passwords, two-step verification for Telegram and Facebook, OTP codes, online scams, fake job offers abroad, social media, fake news, cyberbullying.
 - SULVANA.md: who Sulvana is, who made it, what model it is built on, its limits, reasoning and search features, personalisation and memory.
-- TOOLS.md: what Sulvana's tools do (search, Khmer tools, reading links, /calc, /number, read aloud, coding mode, sharing). Use only for questions about Sulvana itself.
+- TOOLS.md: what Sulvana's tools do (time and dates, sums, this computer, the user's files, search, Khmer tools, reading links, /calc, /number, read aloud, coding mode, sharing). Use only for questions about Sulvana itself.
 - AGENT_SAFETY.md: Sulvana's safety rules for tools. Use only for questions about Sulvana's safety or permissions.

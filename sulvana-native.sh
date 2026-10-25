@@ -14,7 +14,7 @@ SULVANA_JAVAFX="$SULVANA_APP/.runtime/javafx/javafx-sdk-25.0.4/lib"
 SULVANA_SOURCE="$SULVANA_APP/java-ui/src/SulvanaDesktop.java"
 SULVANA_CLASS="$SULVANA_APP/java-ui/build/SulvanaDesktop.class"
 PID_FILE="$SULVANA_APP/.runtime/sulvana-web.pid"
-ENGINE_VARS=(SULVANA_BASE SULVANA_CONTEXT SULVANA_GPU_HEADROOM_MB SULVANA_LORA_ADAPTER SULVANA_LORA_SCALE SULVANA_LORA_KHMER SULVANA_LORA_OTHER SULVANA_KHMER_ADAPTER)
+ENGINE_VARS=(SULVANA_BASE SULVANA_CONTEXT SULVANA_GPU_HEADROOM_MB SULVANA_MT_DEVICE SULVANA_LORA_ADAPTER SULVANA_LORA_SCALE SULVANA_LORA_KHMER SULVANA_LORA_OTHER SULVANA_KHMER_ADAPTER)
 
 # systemd user services keep the engine running after this script exits; without them (some
 # distributions, containers, WSL) the engine is started in the background instead.

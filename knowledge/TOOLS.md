@@ -1,6 +1,17 @@
 # Sulvana local tools
 
-Sulvana has three optional tools. They are deliberately narrow: the assistant can look things up and inspect the project without gaining control of the computer.
+Sulvana can use tools in an ordinary chat whenever they help: the date and time, counting days, sums, this computer's details, the user's files, its own notes and the web. They stay narrow on purpose: Sulvana can look and read, and save new files into one folder of its own, but it cannot change or delete anything, run programs, or touch system files.
+
+## Everyday tools
+
+- `time.now`: the current date and time, here or in any timezone ("what time is it in Tokyo?").
+- `date.diff`: days between two dates ("how many days until Khmer New Year?").
+- `math.calc`: exact arithmetic.
+- `system.info`: this computer's battery, memory (RAM), free disk space, graphics card and how long it has been on.
+- `files.list`, `files.find`, `files.read`: look in the user's home folder, find files by name, and read text, PDF and Word files.
+- `files.save`: save text the user asked for (a letter, notes, a summary) as a new file in `~/Documents/Sulvana`. It never overwrites a file: a second `letter.txt` becomes `letter (2).txt`.
+
+Limits: only the user's home folder; system files, anything outside the home folder, hidden folders (settings, keys, browser data), and anything that looks like a password, key or other secret are off limits, and so is Sulvana's private training data. Sulvana cannot delete, move, rename or overwrite files, install anything or run programs, and says so if asked. Friends on a shared link can use the date, time, sums, notes and web tools, but never the file, computer or terminal tools. Up to 4 tools can be used for one answer.
 
 Explicit `/terminal`, `/docs`, and `/search` commands show the tool output directly. Ordinary questions may use the same tools as reference data for Sulvana's answer.
 
