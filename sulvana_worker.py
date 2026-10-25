@@ -1641,10 +1641,10 @@ class ModelWorker:
         self._stop_server(); self._emit(f"{kind}_started", {"state": "started"})
         try:
             result = self._generate_image(prompt) if kind == "image" else self._analyze_image(prompt, image_path or "")
+            self._emit(f"{kind}_done", result)
         finally:
             if not self.shutdown_event.is_set():
                 self._emit("status", f"Reloading {ENGINE_NAME}…"); self._start_server()
-        self._emit(f"{kind}_done", result)
 
     def _generate_image(self, prompt: str) -> dict:
         if not IMAGE_SCRIPT.is_file(): raise FileNotFoundError(f"Z-Image launcher missing: {IMAGE_SCRIPT}")

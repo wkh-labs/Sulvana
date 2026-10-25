@@ -38,11 +38,10 @@ exec "$runner" \
   --diffusion-model "$denoiser" \
   --llm "$encoder" \
   --vae "$vae" \
-  --backend 'diffusion=vulkan0,te=cpu,vae=cpu' \
-  --offload-to-cpu \
+  --backend 'diffusion=vulkan0,te=cpu,vae=vulkan0' \
   --diffusion-fa \
-  --vae-tiling \
-  --steps 9 \
+  --threads 8 \
+  --steps 8 \
   --cfg-scale 1 \
   --sampling-method euler \
   --seed -1 \
