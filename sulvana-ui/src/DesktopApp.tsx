@@ -1,5 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { ArrowDown, ArrowUp, Menu, Volume2, LoaderCircle, Brain, FileDown, RefreshCw, Check, ChevronRight, ChevronsDown, Code, Copy, Download, FilePen, FilePlus, FileText, FolderCode, FolderOpen, Globe, Image as ImageIcon, ImagePlus, Lightbulb, Palette, PencilLine, ThumbsUp, MessageCircle, Paperclip, RotateCcw, Search, Settings, ShieldCheck, Sparkles, Square, SquarePen, SquareTerminal, Trash2, TriangleAlert, Undo2, Wrench, X, type LucideIcon } from 'lucide-react';
+import { ArrowDown, ArrowUp, Menu, Volume2, LoaderCircle, Brain, FileDown, RefreshCw, Check, ChevronRight, ChevronsDown, Code, Copy, Download, FilePen, FilePlus, FileText, FolderCode, FolderOpen, Globe, Image as ImageIcon, Info, Keyboard, UserRound, ImagePlus, Lightbulb, Palette, PencilLine, ThumbsUp, MessageCircle, Paperclip, RotateCcw, Search, Settings, ShieldCheck, Sparkles, Square, SquarePen, SquareTerminal, Trash2, TriangleAlert, Undo2, Wrench, X, type LucideIcon } from 'lucide-react';
 import { Markdown } from './markdown';
 import { WKH_MARK_DARK, WKH_MARK_LIGHT } from './wkhLogo';
 import './desktop.css';
@@ -70,6 +70,8 @@ type Preferences = {
   code: boolean;
   codeRoot: string;
   textSize: TextSize;
+  /** Interface size in percent, like a game's GUI scale: everything (text, buttons, sidebar) grows or shrinks. */
+  uiScale: number;
   translate: Translator;
   translateAsked: boolean;
   uiLanguage: 'km' | 'en';
@@ -150,6 +152,23 @@ const TOKEN_LIMITS = [512, 1024, 2048, 4096, 8192];
 const LENGTH_NAMES: Record<number, string> = { 512: 'Short', 1024: 'Medium', 2048: 'Long', 4096: 'Very long', 8192: 'Longest' };
 const LENGTH_NAMES_KM: Record<number, string> = { 512: 'ខ្លី', 1024: 'មធ្យម', 2048: 'វែង', 4096: 'វែងណាស់', 8192: 'វែងបំផុត' };
 type TextSize = 'small' | 'default' | 'large';
+/** A greeting for the time of day, with the user's name when they gave one: "Good evening, Han" / "សាយណ្ហសួស្តី Han". */
+function greeting(language: 'km' | 'en', name: string, hour = new Date().getHours()): string {
+  const [en, km] = hour < 5 ? ['Still up', 'យប់ជ្រៅហើយ'] : hour < 12 ? ['Good morning', 'អរុណសួស្តី']
+    : hour < 17 ? ['Good afternoon', 'ទិវាសួស្តី'] : hour < 22 ? ['Good evening', 'សាយណ្ហសួស្តី'] : ['Still up', 'យប់ជ្រៅហើយ'];
+  const who = name.trim();
+  return language === 'km' ? `${km}${who ? ' ' + who : ''}!` : `${en}${who ? ', ' + who : ''}${en === 'Still up' ? '?' : ''}`;
+}
+type SettingsTab = 'you' | 'answers' | 'look' | 'share' | 'about';
+const SETTINGS_TABS: { id: SettingsTab; icon: LucideIcon; tint: string; en: string; km: string; aboutEn: string; aboutKm: string }[] = [
+  { id: 'you', icon: UserRound, tint: 'pink', en: 'You', km: 'អ្នក', aboutEn: 'Your name, how Sulvana answers you, and what it remembers.', aboutKm: 'ឈ្មោះរបស់អ្នក របៀបដែល Sulvana ឆ្លើយ និងអ្វីដែលវាចងចាំ។' },
+  { id: 'answers', icon: Sparkles, tint: 'lilac', en: 'Answers', km: 'ចម្លើយ', aboutEn: 'Khmer tools, languages, search and the model.', aboutKm: 'ឧបករណ៍ខ្មែរ ភាសា ការស្វែងរក និងម៉ូដែល។' },
+  { id: 'look', icon: Palette, tint: 'mint', en: 'Look', km: 'រូបរាង', aboutEn: 'Theme, colours and sizes. Changes show right away.', aboutKm: 'រូបរាង ពណ៌ និងទំហំ។ ការផ្លាស់ប្តូរបង្ហាញភ្លាមៗ។' },
+  { id: 'share', icon: Globe, tint: 'sky', en: 'Sharing', km: 'ចែករំលែក', aboutEn: 'Let a friend use Sulvana through a private link.', aboutKm: 'អនុញ្ញាតឱ្យមិត្តប្រើ Sulvana តាមតំណឯកជន។' },
+  { id: 'about', icon: Info, tint: 'butter', en: 'About', km: 'អំពី', aboutEn: 'Who made Sulvana, and handy shortcuts.', aboutKm: 'អ្នកបង្កើត Sulvana និងផ្លូវកាត់ដែលមានប្រយោជន៍។' },
+];
+// Interface size steps (percent), from compact to very large; Ctrl + / Ctrl − move one step, Ctrl 0 resets.
+const UI_SCALES = [75, 90, 100, 110, 125, 150, 175, 200];
 const DEFAULT_PREFERENCES: Preferences = {
   temperature: 0.4,
   maxTokens: 2048,
@@ -162,6 +181,7 @@ const DEFAULT_PREFERENCES: Preferences = {
   code: false,
   codeRoot: '',
   textSize: 'default',
+  uiScale: 100,
   translate: 'local',
   translateAsked: false,
   uiLanguage: 'km',
@@ -267,6 +287,7 @@ function cleanPreferences(raw: unknown): Preferences {
     code: saved.code === true,
     codeRoot: typeof saved.codeRoot === 'string' ? saved.codeRoot.slice(0, 1000) : '',
     textSize: saved.textSize === 'small' || saved.textSize === 'large' ? saved.textSize : 'default',
+    uiScale: UI_SCALES.includes(Number(saved.uiScale)) ? Number(saved.uiScale) : 100,
     // Google only after the user said yes (it sends their text to Google); the local translator needs no consent.
     translate: saved.translate === 'off' || saved.translate === 'local' ? saved.translate
       : (saved.translate === 'google' || (saved.translate as unknown) === true) && saved.translateAsked === true ? 'google' : 'local',
@@ -671,6 +692,7 @@ export default function DesktopApp() {
   const [tunnelInput, setTunnelInput] = useState(() => getRemoteConfig().tunnel);
   const [keyInput, setKeyInput] = useState(() => getRemoteConfig().key);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('you');
   const searchBox = useRef<HTMLInputElement>(null);
   const workspace = useRef<HTMLElement>(null);
   const composerWrap = useRef<HTMLDivElement>(null);
@@ -760,13 +782,33 @@ export default function DesktopApp() {
   useEffect(() => { followReply.current = true; bottom.current?.scrollIntoView({ block: 'end' }); }, [activeId]);
   useEffect(() => { composer.current?.focus(); }, []);
   useEffect(() => { document.documentElement.dataset.textSize = preferences.textSize; }, [preferences.textSize]);
-  // Shortcuts: Escape stops reply, Ctrl+N new chat, Ctrl+K search chats, Ctrl+, settings, Ctrl+Shift+E export.
+  // Interface size scales the whole window, like a game's GUI scale (CSS zoom on the root keeps the layout filling it).
+  useEffect(() => {
+    if (preferences.uiScale === 100) document.documentElement.style.removeProperty('zoom');
+    else document.documentElement.style.setProperty('zoom', String(preferences.uiScale / 100));
+  }, [preferences.uiScale]);
+  const [scaleShown, setScaleShown] = useState(0);
+  const scaleTimer = useRef<number | undefined>(undefined);
+  const changeScale = (direction: -1 | 0 | 1) => {
+    const index = UI_SCALES.indexOf(preferences.uiScale);
+    const next = direction === 0 ? 100 : UI_SCALES[Math.min(UI_SCALES.length - 1, Math.max(0, (index < 0 ? 2 : index) + direction))];
+    setPreferences(current => (current.uiScale === next ? current : { ...current, uiScale: next }));
+    setScaleShown(next);
+    window.clearTimeout(scaleTimer.current);
+    scaleTimer.current = window.setTimeout(() => setScaleShown(0), 1400);
+  };
+  // Shortcuts: Escape stops reply, Ctrl+N new chat, Ctrl+K search chats, Ctrl+, settings, Ctrl+Shift+E export,
+  // Ctrl + / Ctrl − / Ctrl 0 interface size.
   const shortcuts = useRef<(event: KeyboardEvent) => void>(() => undefined);
   shortcuts.current = (event: KeyboardEvent) => {
     if (event.key === 'Escape' && busyRef.current && !dialog && !approval) {
       event.preventDefault();
       stop();
       return;
+    }
+    if ((event.ctrlKey || event.metaKey) && !event.altKey) {
+      const zoom = event.key === '=' || event.key === '+' ? 1 : event.key === '-' || event.key === '_' ? -1 : event.key === '0' ? 0 : null;
+      if (zoom !== null) { event.preventDefault(); changeScale(zoom); return; }
     }
     if (!(event.ctrlKey || event.metaKey) || dialog || approval) return;
     const key = event.key.toLowerCase();
@@ -1335,6 +1377,7 @@ export default function DesktopApp() {
 
   return <div className={'shell' + (drawerOpen ? ' drawer-open' : '') + (preferences.uiLanguage === 'km' ? ' ui-km' : '')}>
     {drawerOpen && <div className="drawer-backdrop" onClick={() => setDrawerOpen(false)} aria-hidden="true" />}
+    {scaleShown > 0 && <div className="scale-toast" role="status" aria-live="polite" key={scaleShown}>{L('Interface size', 'ទំហំកម្មវិធី')} · {scaleShown}%</div>}
     <aside className="sidebar" onClick={event => { if ((event.target as HTMLElement).closest('.conversation > button:first-child, .new-chat')) setDrawerOpen(false); }}>
       <div className="sidebar-head">
         <div className="brand"><Logo size={32} /><div><strong>Sulvana</strong><small>{L('On this device', 'នៅលើកុំព្យូទ័រនេះ')}</small></div></div>
@@ -1396,12 +1439,14 @@ export default function DesktopApp() {
         if (pane) { followReply.current = pane.scrollHeight - pane.scrollTop - pane.clientHeight < 100; setAtBottom(followReply.current); }
       }}>
         {active.messages.length === 0 ? <div className="empty">
+          <span className="float-shape f1" aria-hidden="true" /><span className="float-shape f2" aria-hidden="true" />
+          <span className="float-shape f3" aria-hidden="true" /><span className="float-shape f4" aria-hidden="true" />
           <div className="empty-icon"><Logo size={88} /></div>
           {uiLanguage === 'km'
-            ? <><h1 lang="km">សួស្តី! តើខ្ញុំអាចជួយអ្វីបាន?</h1><p className="empty-khmer">What are we working on?</p>
+            ? <><h1 lang="km" dir="auto">{greeting('km', preferences.userName)}</h1><p className="empty-khmer" lang="km">តើខ្ញុំអាចជួយអ្វីបាន?</p>
               <p lang="km">សួរអ្វីក៏បាន ភ្ជាប់រូបភាព ឬវាយ <code>/image</code> ដើម្បីបង្កើតរូបភាព។</p></>
-            : <><h1>What are we working on?</h1><p className="empty-khmer" lang="km">សួស្តី! តើខ្ញុំអាចជួយអ្វីបាន?</p>
-              <p>Ask anything, attach an image, or type <code>/image</code> to create one.</p></>}
+            : <><h1 dir="auto">{greeting('en', preferences.userName)}</h1><p className="empty-khmer" lang="km">តើខ្ញុំអាចជួយអ្វីបាន?</p>
+              <p>What are we working on? Ask anything, attach an image, or type <code>/image</code> to create one.</p></>}
           {!preferences.translateAsked && <div className="consent-card" role="region" aria-label="Khmer tools">
             <strong lang="km">ចង់បានភាសាខ្មែរល្អជាងនេះទេ?</strong>
             {uiLanguage === 'km'
@@ -1523,240 +1568,246 @@ export default function DesktopApp() {
         <div className="composer-note">{composerHint}</div>
       </div>
     </main>
-    {dialog === 'settings' && <Modal title={L('Settings', 'ការកំណត់')} onClose={() => setDialog(null)}>
-      <h3 className="form-heading">{L('Personalisation', 'ផ្ទាល់ខ្លួន')}</h3>
-      <div className="form-group">
-        <div className="form-row stacked">
-          <label htmlFor="setting-name">{L('What should Sulvana call you?', 'តើ Sulvana គួរហៅអ្នកថាអ្វី?')}</label>
-          <input id="setting-name" type="text" maxLength={60} placeholder={L('Your name or nickname', 'ឈ្មោះ ឬឈ្មោះហៅក្រៅរបស់អ្នក')} value={preferences.userName}
-            onChange={event => setPreferences(current => ({ ...current, userName: event.target.value }))} />
-        </div>
-        <div className="form-row stacked">
-          <label htmlFor="setting-about">{L('About you', 'អំពីអ្នក')}</label>
-          <textarea id="setting-about" rows={2} maxLength={600} dir="auto" placeholder={L('For example: Grade 8 student at Sisowath High School; I like science.', 'ឧទាហរណ៍៖ សិស្សថ្នាក់ទី៨ នៅវិទ្យាល័យព្រះស៊ីសុវត្ថិ ចូលចិត្តវិទ្យាសាស្ត្រ។')}
-            value={preferences.aboutUser} onChange={event => setPreferences(current => ({ ...current, aboutUser: event.target.value }))} />
-        </div>
-        <div className="form-row">
-          <label htmlFor="setting-style">{L('Answer style', 'របៀបឆ្លើយ')}</label>
-          <select id="setting-style" value={preferences.responseStyle} onChange={event => setPreferences(current => ({ ...current, responseStyle: event.target.value as ResponseStyle }))}>
-            {RESPONSE_STYLES.map(style => <option key={style} value={style}>{{
-              normal: L('Normal', 'ធម្មតា'), concise: L('Short', 'ខ្លី'), detailed: L('Detailed, like a teacher', 'លម្អិត ដូចគ្រូបង្រៀន'),
-              formal: L('Formal', 'ផ្លូវការ'), friendly: L('Friendly', 'រាក់ទាក់') }[style]}</option>)}
-          </select>
-        </div>
-        <div className="form-row stacked">
-          <label htmlFor="setting-instructions">{L('How should Sulvana answer?', 'តើ Sulvana គួរឆ្លើយបែបណា?')}</label>
-          <textarea id="setting-instructions" rows={2} maxLength={1500} dir="auto" placeholder={L('For example: use simple words and give one example each time.', 'ឧទាហរណ៍៖ ប្រើពាក្យងាយៗ ហើយផ្ដល់ឧទាហរណ៍មួយរាល់ពេល។')}
-            value={preferences.instructions} onChange={event => setPreferences(current => ({ ...current, instructions: event.target.value }))} />
-        </div>
-        <div className="form-row stacked">
-          <span id="setting-memory">{L('Memory', 'ការចងចាំ')} <span>{preferences.memories.length}/30</span></span>
-          {preferences.memories.length === 0
-            ? <p className="form-note">{L('Nothing saved yet. Say "remember that …" in any chat, and it is kept here and used in every chat.', 'មិនទាន់មានអ្វីត្រូវបានរក្សាទុកទេ។ និយាយថា «ចងចាំថា …» ក្នុងការសន្ទនាណាមួយ វានឹងត្រូវរក្សាទុកនៅទីនេះ ហើយប្រើក្នុងគ្រប់ការសន្ទនា។')}</p>
-            : <ul className="memory-list" aria-labelledby="setting-memory">{preferences.memories.map((memory, position) => <li key={position} dir="auto">
-              <span>{memory}</span>
-              <button type="button" aria-label={L('Forget this', 'បំភ្លេចវា')} title={L('Forget this', 'បំភ្លេចវា')}
-                onClick={() => setPreferences(current => ({ ...current, memories: current.memories.filter((_, index) => index !== position) }))}><X size={13} /></button>
-            </li>)}</ul>}
-        </div>
-      </div>
-      <p className="form-note">{L('Kept only in this browser. Sulvana gets these with every message.', 'រក្សាទុកតែនៅក្នុងកម្មវិធីរុករកនេះប៉ុណ្ណោះ។ Sulvana ទទួលបានព័ត៌មានទាំងនេះជាមួយសាររាល់ពេល។')}</p>
-      <h3 className="form-heading">{L('Answers and tools', 'ចម្លើយ និងឧបករណ៍')}</h3>
-      <div className="form-group">
-        <div className="form-row">
-          <label htmlFor="setting-language">{L('Reply language', 'ភាសាឆ្លើយតប')}</label>
-          <select id="setting-language" data-autofocus value={customLanguage ? '__other' : preferences.language} onChange={event => {
-            const other = event.target.value === '__other';
-            setCustomLanguage(other);
-            setPreferences(current => ({ ...current, language: other ? '' : event.target.value }));
-          }}>
-            {LANGUAGES.map(language => <option key={language} value={language}>{language === 'Auto' ? 'Automatic (Khmer first)' : language}</option>)}
-            <option value="__other">Other…</option>
-          </select>
-        </div>
-        {customLanguage && <div className="form-row">
-          <input type="text" aria-label="Other reply language" maxLength={80} placeholder="Language name, for example Deutsch" value={preferences.language}
-            onChange={event => setPreferences(current => ({ ...current, language: event.target.value }))} />
-        </div>}
-      </div>
-      <p className="form-note">{customLanguage ? 'Letters only. Leave it empty to match your message.' : 'Automatic replies in Khmer, or in the language you write in.'}</p>
-      <div className="form-group">
-        <div className="form-row">
-          <span id="setting-translate">{L('Khmer tools', 'ឧបករណ៍ភាសាខ្មែរ')}</span>
-          <div className="segmented" role="radiogroup" aria-labelledby="setting-translate">
-            {(['off', 'local', 'google'] as const).map(choice => <button type="button" key={choice} role="radio" aria-checked={preferences.translate === choice}
-              onClick={() => setPreferences(current => ({ ...current, translate: choice, translateAsked: true }))}>{choice === 'off' ? L('Off', 'បិទ') : choice === 'local' ? L('This computer', 'កុំព្យូទ័រនេះ') : 'Google'}</button>)}
-          </div>
-        </div>
-      </div>
-      <p className="form-note">{preferences.translate === 'google'
-        ? L("Most accurate. Sulvana thinks in English and Google's Khmer tools write the answer, so your Khmer messages and Sulvana's replies are sent to Google. If Google cannot be reached, the tools on this computer take over.",
-          'ត្រឹមត្រូវបំផុត។ Sulvana គិតជាភាសាអង់គ្លេស ហើយឧបករណ៍ភាសាខ្មែររបស់ Google សរសេរចម្លើយ ដូច្នេះសារជាភាសាខ្មែររបស់អ្នក និងចម្លើយរបស់ Sulvana ត្រូវបានផ្ញើទៅ Google។ ប្រសិនបើមិនអាចភ្ជាប់ទៅ Google បានទេ ឧបករណ៍នៅលើកុំព្យូទ័រនេះនឹងជំនួស។')
-        : preferences.translate === 'local'
-          ? L('Private. Sulvana thinks in English and Khmer tools on this computer write the answer. Nothing is sent online. The tools sometimes pick the wrong word.',
-            'ឯកជន។ Sulvana គិតជាភាសាអង់គ្លេស ហើយឧបករណ៍ភាសាខ្មែរនៅលើកុំព្យូទ័រនេះ សរសេរចម្លើយ។ គ្មានអ្វីត្រូវបានផ្ញើទៅអ៊ីនធឺណិតទេ។ ពេលខ្លះឧបករណ៍ប្រើពាក្យខុស។')
-          : L('Sulvana writes Khmer itself. Private, but with more spelling and grammar mistakes.',
-            'Sulvana សរសេរភាសាខ្មែរដោយខ្លួនឯង។ ឯកជន ប៉ុន្តែមានកំហុសអក្ខរាវិរុទ្ធ និងវេយ្យាករណ៍ច្រើនជាង។')}</p>
-      <div className="form-group">
-        <div className="form-row stacked">
-          <label htmlFor="setting-creativity">{L('Creativity', 'ភាពច្នៃប្រឌិត')} <span>{preferences.temperature <= 0.5 ? L('Precise', 'ច្បាស់លាស់') : preferences.temperature <= 0.9 ? L('Balanced', 'មធ្យម') : L('Creative', 'ច្នៃប្រឌិត')} · {preferences.temperature.toFixed(1)}</span></label>
-          <input id="setting-creativity" type="range" min="0.1" max="1.5" step="0.1" value={preferences.temperature} style={{ '--range-fill': rangeFill } as CSSProperties}
-            onChange={event => setPreferences(current => ({ ...current, temperature: Number(event.target.value) }))} />
-        </div>
-      </div>
-      <p className="form-note">Lower is more focused and repeatable; higher is more varied.</p>
-      <div className="form-group">
-        <div className="form-row">
-          <label htmlFor="setting-length">{L('Maximum reply length', 'ប្រវែងចម្លើយ')}</label>
-          <select id="setting-length" value={preferences.maxTokens} onChange={event => setPreferences(current => ({ ...current, maxTokens: Number(event.target.value) }))}>
-            {TOKEN_LIMITS.map(value => <option key={value} value={value}>{uiLanguage === 'km' ? LENGTH_NAMES_KM[value] : LENGTH_NAMES[value]}</option>)}
-          </select>
-        </div>
-        <div className="form-row">
-          <label htmlFor="setting-model">{L('Model', 'ម៉ូដែល')}</label>
-          <select id="setting-model" value={models?.current || 'sulvana-2.0'} disabled={!models || busy} onChange={event => void switchModel(event.target.value)}>
-            {(models?.models || [{ id: 'sulvana-2.0', label: 'Sulvana 2.0', detail: '', available: true }]).map(choice =>
-              <option key={choice.id} value={choice.id} disabled={!choice.available}>{choice.label}{choice.available ? '' : ' (not downloaded)'}</option>)}
-          </select>
-        </div>
-        {models && <p className="form-note model-note">{models.models.find(m => m.id === (models.current || 'sulvana-2.0'))?.detail}</p>}
-        {!isRemote && <div className="form-row stacked">
-          <label htmlFor="setting-project">{L('Coding project folder', 'ថតគម្រោងកូដ')}</label>
-          <div className="project-field">
-            <input id="setting-project" type="text" spellCheck={false} placeholder="/home/you/projects/my-app" value={preferences.codeRoot}
-              onChange={event => setPreferences(current => ({ ...current, codeRoot: event.target.value.slice(0, 1000) }))} />
-            {window.sulvanaElectron && <button type="button" onClick={() => void chooseProject()}>Choose…</button>}
-          </div>
-        </div>}
-      </div>
-      <details className="form-details" open={isRemote || undefined}>
-        <summary>{L('Share with a friend', 'ចែករំលែកជាមួយមិត្តភក្តិ')}</summary>
-      <div className="form-group">
-        <div className="form-row stacked">
-          <label htmlFor="setting-tunnel">Remote Laptop Tunnel <span>{remoteConfig.tunnel ? 'Connected' : 'Local'}</span></label>
-          <div className="project-field">
-            <input id="setting-tunnel" type="text" spellCheck={false} placeholder="https://xxxx.trycloudflare.com" value={tunnelInput}
-              onChange={event => setTunnelInput(event.target.value)} />
-          </div>
-        </div>
-        <div className="form-row stacked">
-          <label htmlFor="setting-key">Access Key</label>
-          <div className="project-field">
-            <input id="setting-key" type="text" spellCheck={false} placeholder="Passphrase key" value={keyInput}
-              onChange={event => setKeyInput(event.target.value)} />
-            <button type="button" onClick={() => saveRemoteSettings(tunnelInput, keyInput)}>Save</button>
-            <button type="button" onClick={copyInviteLink} title="Copy invite link to share with your friend">{copiedLink ? 'Copied!' : 'Copy Link'}</button>
-          </div>
-        </div>
-      </div>
-        <p className="form-note">Connect to Sulvana on your laptop via Cloudflare tunnel. Run <code>./share.sh</code> on your laptop, or click Copy Link to send your friend an instant invite.</p>
-      </details>
-      <div className="form-group">
-        <div className="form-row">
-          <span id="setting-auto-search">{L('Search when unsure', 'ស្វែងរកពេលមិនច្បាស់')}</span>
-          <div className="segmented" role="radiogroup" aria-labelledby="setting-auto-search">
-            {([true, false] as const).map(on => <button type="button" key={String(on)} role="radio" aria-checked={preferences.autoSearch === on}
-              onClick={() => setPreferences(current => ({ ...current, autoSearch: on }))}>{on ? L('On', 'បើក') : L('Off', 'បិទ')}</button>)}
-          </div>
-        </div>
-        <p className="form-note">{L('When Sulvana is not sure of a fact, name or word, it looks it up on the web first and lists the sources. Only a short search query is sent (to DuckDuckGo or Wikipedia), not your conversation.',
-          'ពេល Sulvana មិនច្បាស់អំពីការពិត ឈ្មោះ ឬពាក្យណាមួយ វានឹងស្វែងរកតាមអ៊ីនធឺណិតជាមុន ហើយបង្ហាញប្រភព។ មានតែពាក្យស្វែងរកខ្លីមួយប៉ុណ្ណោះដែលត្រូវបានផ្ញើ (ទៅ DuckDuckGo ឬ Wikipedia) មិនមែនការសន្ទនារបស់អ្នកទេ។')}</p>
-        <div className="form-row">
-          <span id="setting-ui-language">{L('Interface language', 'ភាសាកម្មវិធី')}</span>
-          <div className="segmented" role="radiogroup" aria-labelledby="setting-ui-language">
-            {(['km', 'en'] as const).map(language => <button type="button" key={language} role="radio" aria-checked={preferences.uiLanguage === language}
-              onClick={() => setPreferences(current => ({ ...current, uiLanguage: language }))}>{language === 'km' ? 'ខ្មែរ' : 'English'}</button>)}
-          </div>
-        </div>
-        <div className="form-row">
-          <span id="setting-text-size">{L('Text size', 'ទំហំអក្សរ')}</span>
-          <div className="segmented" role="radiogroup" aria-labelledby="setting-text-size">
-            {(['small', 'default', 'large'] as const).map(size => <button type="button" key={size} role="radio" aria-checked={preferences.textSize === size}
-              onClick={() => setPreferences(current => ({ ...current, textSize: size }))}>{size === 'small' ? L('Small', 'តូច') : size === 'default' ? L('Default', 'ធម្មតា') : L('Large', 'ធំ')}</button>)}
-          </div>
-        </div>
-      </div>
-      <div className="form-heading">{L('Color & Appearance', 'ពណ៌ និងរូបរាង')}</div>
-      <div className="form-group">
-        <div className="customization-section">
-          <span className="customization-label">{L('Base theme', 'រូបរាងមូលដ្ឋាន')}</span>
-          <div className="theme-grid" role="radiogroup" aria-label={L('Base theme', 'រូបរាងមូលដ្ឋាន')}>
-            {THEMES.map(theme => (
-              <button
-                type="button"
-                key={theme.id}
-                role="radio"
-                aria-checked={preferences.theme === theme.id}
-                className={`theme-card theme-${theme.id} ${preferences.theme === theme.id ? 'active' : ''}`}
-                onClick={() => setPreferences(current => ({ ...current, theme: theme.id }))}
-                title={L(theme.nameEn, theme.nameKm)}
-              >
-                <span className="theme-preview-dot" style={{ backgroundColor: theme.color, borderColor: theme.border }} />
-                <span className="theme-name">{L(theme.nameEn, theme.nameKm)}</span>
-              </button>
-            ))}
-          </div>
-        </div>
+    {dialog === 'settings' && <Modal title={L('Settings', 'ការកំណត់')} onClose={() => setDialog(null)} className="settings-backdrop">
+      <div className="settings-layout">
+        <nav className="settings-nav" role="tablist" aria-label={L('Settings sections', 'ផ្នែកការកំណត់')}>
+          {SETTINGS_TABS.map(tab => <button type="button" key={tab.id} role="tab" id={'settings-tab-' + tab.id} aria-selected={settingsTab === tab.id}
+            aria-controls="settings-pane" className={'settings-tab tint-' + tab.tint} onClick={() => setSettingsTab(tab.id)}>
+            <span className="settings-tab-icon"><tab.icon size={16} /></span><span>{L(tab.en, tab.km)}</span></button>)}
+        </nav>
+        <div className="settings-pane" id="settings-pane" role="tabpanel" aria-labelledby={'settings-tab-' + settingsTab} key={settingsTab}>
+          {(() => { const tab = SETTINGS_TABS.find(item => item.id === settingsTab)!; return <header className="pane-head">
+            <span className={'pane-icon tint-' + tab.tint}><tab.icon size={22} /></span>
+            <div><h3>{L(tab.en, tab.km)}</h3><p>{L(tab.aboutEn, tab.aboutKm)}</p></div>
+          </header>; })()}
 
-        <div className="customization-section">
-          <span className="customization-label">{L('Accent color', 'ពណ៌សង្កត់')}</span>
-          <div className="accent-palette" role="radiogroup" aria-label={L('Accent color', 'ពណ៌សង្កត់')}>
-            {ACCENT_PRESETS.map(accent => {
-              const active = preferences.accent === accent.id;
-              return (
-                <button
-                  type="button"
-                  key={accent.id}
-                  role="radio"
-                  aria-checked={active}
-                  className={`accent-chip ${active ? 'active' : ''}`}
-                  onClick={() => setPreferences(current => ({ ...current, accent: accent.id }))}
-                  title={L(accent.nameEn, accent.nameKm)}
-                >
-                  <span className="accent-chip-inner" style={{ backgroundColor: accent.color }}>
-                    {active && <Check size={14} color="#FFFFFF" strokeWidth={3} />}
-                  </span>
-                </button>
-              );
-            })}
-            <div className={`accent-chip custom-chip ${preferences.accent === 'custom' ? 'active' : ''}`} title={L('Custom Color', 'ពណ៌ផ្ទាល់ខ្លួន')}>
-              <span className="accent-chip-inner" style={{ backgroundColor: preferences.customAccent || '#8B6CF6' }}>
-                <Palette size={14} className="custom-chip-icon" />
-              </span>
-              <input
-                type="color"
-                className="custom-color-input"
-                aria-label={L('Pick custom accent color', 'ជ្រើសរើសពណ៌ផ្ទាល់ខ្លួន')}
-                value={preferences.customAccent || '#8B6CF6'}
-                onChange={event => {
-                  const val = event.target.value;
-                  setPreferences(current => ({ ...current, accent: 'custom', customAccent: val }));
-                }}
-              />
+          {settingsTab === 'you' && <>
+            <div className="greeting-preview" aria-hidden="true">
+              <span className="greeting-dot" />{L('Sulvana will greet you with', 'Sulvana នឹងស្វាគមន៍អ្នកថា')} <b dir="auto">{greeting(preferences.uiLanguage, preferences.userName)}</b>
             </div>
-          </div>
-        </div>
+            <div className="form-group">
+              <div className="form-row stacked">
+                <label htmlFor="setting-name">{L('What should Sulvana call you?', 'តើ Sulvana គួរហៅអ្នកថាអ្វី?')}</label>
+                <input id="setting-name" type="text" maxLength={60} data-autofocus placeholder={L('Your name or nickname', 'ឈ្មោះ ឬឈ្មោះហៅក្រៅរបស់អ្នក')} value={preferences.userName}
+                  onChange={event => setPreferences(current => ({ ...current, userName: event.target.value }))} />
+              </div>
+              <div className="form-row stacked">
+                <label htmlFor="setting-about">{L('About you', 'អំពីអ្នក')}</label>
+                <textarea id="setting-about" rows={2} maxLength={600} dir="auto" placeholder={L('For example: Grade 8 student at Sisowath High School; I like science.', 'ឧទាហរណ៍៖ សិស្សថ្នាក់ទី៨ នៅវិទ្យាល័យព្រះស៊ីសុវត្ថិ ចូលចិត្តវិទ្យាសាស្ត្រ។')}
+                  value={preferences.aboutUser} onChange={event => setPreferences(current => ({ ...current, aboutUser: event.target.value }))} />
+              </div>
+              <div className="form-row">
+                <label htmlFor="setting-style">{L('Answer style', 'របៀបឆ្លើយ')}</label>
+                <select id="setting-style" value={preferences.responseStyle} onChange={event => setPreferences(current => ({ ...current, responseStyle: event.target.value as ResponseStyle }))}>
+                  {RESPONSE_STYLES.map(style => <option key={style} value={style}>{{
+                    normal: L('Normal', 'ធម្មតា'), concise: L('Short', 'ខ្លី'), detailed: L('Detailed, like a teacher', 'លម្អិត ដូចគ្រូបង្រៀន'),
+                    formal: L('Formal', 'ផ្លូវការ'), friendly: L('Friendly', 'រាក់ទាក់') }[style]}</option>)}
+                </select>
+              </div>
+              <div className="form-row stacked">
+                <label htmlFor="setting-instructions">{L('How should Sulvana answer?', 'តើ Sulvana គួរឆ្លើយបែបណា?')}</label>
+                <textarea id="setting-instructions" rows={2} maxLength={1500} dir="auto" placeholder={L('For example: use simple words and give one example each time.', 'ឧទាហរណ៍៖ ប្រើពាក្យងាយៗ ហើយផ្ដល់ឧទាហរណ៍មួយរាល់ពេល។')}
+                  value={preferences.instructions} onChange={event => setPreferences(current => ({ ...current, instructions: event.target.value }))} />
+              </div>
+            </div>
+            <h4 className="pane-subhead">{L('Memory', 'ការចងចាំ')} <span className="count-pill">{preferences.memories.length}/30</span></h4>
+            <div className="form-group">
+              <div className="form-row stacked">
+                {preferences.memories.length === 0
+                  ? <p className="empty-memories">{L('Nothing saved yet. Say "remember that …" in any chat, and it is kept here and used in every chat.', 'មិនទាន់មានអ្វីត្រូវបានរក្សាទុកទេ។ និយាយថា «ចងចាំថា …» ក្នុងការសន្ទនាណាមួយ វានឹងត្រូវរក្សាទុកនៅទីនេះ ហើយប្រើក្នុងគ្រប់ការសន្ទនា។')}</p>
+                  : <ul className="memory-list" aria-label={L('Memory', 'ការចងចាំ')}>{preferences.memories.map((memory, position) => <li key={position} dir="auto">
+                    <span>{memory}</span>
+                    <button type="button" aria-label={L('Forget this', 'បំភ្លេចវា')} title={L('Forget this', 'បំភ្លេចវា')}
+                      onClick={() => setPreferences(current => ({ ...current, memories: current.memories.filter((_, index) => index !== position) }))}><X size={13} /></button>
+                  </li>)}</ul>}
+              </div>
+            </div>
+            <p className="form-note">{L('Kept only in this app. Sulvana gets these with every message.', 'រក្សាទុកតែនៅក្នុងកម្មវិធីនេះប៉ុណ្ណោះ។ Sulvana ទទួលបានព័ត៌មានទាំងនេះជាមួយសាររាល់ពេល។')}</p>
+          </>}
 
-        <div className="form-row">
-          <span id="setting-bubble-style">{L('Chat bubbles', 'ប្រអប់សារ')}</span>
-          <div className="segmented" role="radiogroup" aria-labelledby="setting-bubble-style">
-            {(['accent', 'neutral'] as const).map(style => (
-              <button
-                type="button"
-                key={style}
-                role="radio"
-                aria-checked={preferences.bubbleStyle === style}
-                onClick={() => setPreferences(current => ({ ...current, bubbleStyle: style }))}
-              >
-                {style === 'accent' ? L('Accent', 'ពណ៌សង្កត់') : L('Neutral', 'ស្រទន់')}
-              </button>
-            ))}
-          </div>
+          {settingsTab === 'answers' && <>
+            <h4 className="pane-subhead">{L('Khmer tools', 'ឧបករណ៍ភាសាខ្មែរ')}</h4>
+            <div className="choice-cards" role="radiogroup" aria-label={L('Khmer tools', 'ឧបករណ៍ភាសាខ្មែរ')}>
+              {([['local', ShieldCheck, L('This computer', 'កុំព្យូទ័រនេះ'), L('Private. Nothing leaves your laptop.', 'ឯកជន។ គ្មានអ្វីចេញពីកុំព្យូទ័រទេ។')],
+                ['google', Globe, 'Google', L('Most accurate, but your Khmer is sent to Google.', 'ត្រឹមត្រូវបំផុត ប៉ុន្តែភាសាខ្មែររបស់អ្នកត្រូវបានផ្ញើទៅ Google។')],
+                ['off', PencilLine, L('Off', 'បិទ'), L('Sulvana writes Khmer itself, with more mistakes.', 'Sulvana សរសេរខ្មែរដោយខ្លួនឯង មានកំហុសច្រើនជាង។')]] as const).map(([choice, Icon, name, about]) =>
+                <button type="button" key={choice} role="radio" aria-checked={preferences.translate === choice} className="choice-card"
+                  onClick={() => setPreferences(current => ({ ...current, translate: choice, translateAsked: true }))}>
+                  <span className="choice-icon"><Icon size={18} /></span><b>{name}</b><small>{about}</small>
+                </button>)}
+            </div>
+            <div className="form-group">
+              <div className="form-row">
+                <label htmlFor="setting-language">{L('Reply language', 'ភាសាឆ្លើយតប')}</label>
+                <select id="setting-language" value={customLanguage ? '__other' : preferences.language} onChange={event => {
+                  const other = event.target.value === '__other';
+                  setCustomLanguage(other);
+                  setPreferences(current => ({ ...current, language: other ? '' : event.target.value }));
+                }}>
+                  {LANGUAGES.map(language => <option key={language} value={language}>{language === 'Auto' ? L('Automatic (Khmer first)', 'ស្វ័យប្រវត្តិ (ខ្មែរជាមុន)') : language}</option>)}
+                  <option value="__other">{L('Other…', 'ផ្សេងទៀត…')}</option>
+                </select>
+              </div>
+              {customLanguage && <div className="form-row">
+                <input type="text" aria-label="Other reply language" maxLength={80} placeholder="Language name, for example Deutsch" value={preferences.language}
+                  onChange={event => setPreferences(current => ({ ...current, language: event.target.value }))} />
+              </div>}
+              <div className="form-row">
+                <span id="setting-auto-search" className="row-label">{L('Search when unsure', 'ស្វែងរកពេលមិនច្បាស់')}<small>{L('Looks facts up on the web first and lists the sources', 'ស្វែងរកតាមអ៊ីនធឺណិតជាមុន ហើយបង្ហាញប្រភព')}</small></span>
+                <button type="button" role="switch" className="switch" aria-checked={preferences.autoSearch} aria-labelledby="setting-auto-search"
+                  onClick={() => setPreferences(current => ({ ...current, autoSearch: !current.autoSearch }))} />
+              </div>
+              <div className="form-row stacked">
+                <label htmlFor="setting-creativity">{L('Creativity', 'ភាពច្នៃប្រឌិត')} <span>{preferences.temperature <= 0.5 ? L('Precise', 'ច្បាស់លាស់') : preferences.temperature <= 0.9 ? L('Balanced', 'មធ្យម') : L('Creative', 'ច្នៃប្រឌិត')} · {preferences.temperature.toFixed(1)}</span></label>
+                <input id="setting-creativity" type="range" min="0.1" max="1.5" step="0.1" value={preferences.temperature} style={{ '--range-fill': rangeFill } as CSSProperties}
+                  onChange={event => setPreferences(current => ({ ...current, temperature: Number(event.target.value) }))} />
+                <div className="range-ends"><span>{L('Precise', 'ច្បាស់លាស់')}</span><span>{L('Creative', 'ច្នៃប្រឌិត')}</span></div>
+              </div>
+              <div className="form-row">
+                <label htmlFor="setting-length">{L('Maximum reply length', 'ប្រវែងចម្លើយ')}</label>
+                <select id="setting-length" value={preferences.maxTokens} onChange={event => setPreferences(current => ({ ...current, maxTokens: Number(event.target.value) }))}>
+                  {TOKEN_LIMITS.map(value => <option key={value} value={value}>{uiLanguage === 'km' ? LENGTH_NAMES_KM[value] : LENGTH_NAMES[value]}</option>)}
+                </select>
+              </div>
+              <div className="form-row">
+                <label htmlFor="setting-model">{L('Model', 'ម៉ូដែល')}</label>
+                <select id="setting-model" value={models?.current || 'sulvana-2.0'} disabled={!models || busy} onChange={event => void switchModel(event.target.value)}>
+                  {(models?.models || [{ id: 'sulvana-2.0', label: 'Sulvana 2.0', detail: '', available: true }]).map(choice =>
+                    <option key={choice.id} value={choice.id} disabled={!choice.available}>{choice.label}{choice.available ? '' : ' (not downloaded)'}</option>)}
+                </select>
+              </div>
+              {models && <p className="form-note model-note">{models.models.find(m => m.id === (models.current || 'sulvana-2.0'))?.detail}</p>}
+              {!isRemote && <div className="form-row stacked">
+                <label htmlFor="setting-project">{L('Coding project folder', 'ថតគម្រោងកូដ')}</label>
+                <div className="project-field">
+                  <input id="setting-project" type="text" spellCheck={false} placeholder="/home/you/projects/my-app" value={preferences.codeRoot}
+                    onChange={event => setPreferences(current => ({ ...current, codeRoot: event.target.value.slice(0, 1000) }))} />
+                  {window.sulvanaElectron && <button type="button" onClick={() => void chooseProject()}>Choose…</button>}
+                </div>
+              </div>}
+            </div>
+          </>}
+
+          {settingsTab === 'look' && <>
+            <div className={'look-preview bubbles-' + preferences.bubbleStyle} data-text-size={preferences.textSize} aria-hidden="true">
+              <div className="preview-user">{L('How my crush?', 'ក្រាសខ្ញុំសុខសប្បាយទេ?')}</div>
+              <div className="preview-bot"><span className="preview-name">Sulvana</span>{L('How would I know? Go ask them yourself!', 'ខ្ញុំដឹងម៉េចបាន? ទៅសួរគាត់ដោយខ្លួនឯងទៅ!')}</div>
+            </div>
+            <h4 className="pane-subhead">{L('Theme', 'រូបរាង')}</h4>
+            <div className="theme-grid" role="radiogroup" aria-label={L('Base theme', 'រូបរាងមូលដ្ឋាន')}>
+              {THEMES.map(theme => <button type="button" key={theme.id} role="radio" aria-checked={preferences.theme === theme.id}
+                className={`theme-card theme-${theme.id} ${preferences.theme === theme.id ? 'active' : ''}`}
+                onClick={() => setPreferences(current => ({ ...current, theme: theme.id }))}>
+                <span className="theme-mini" style={{ background: theme.color, borderColor: theme.border }}>
+                  <span className="mini-side" style={{ background: theme.border }} />
+                  <span className="mini-bubble" />
+                  <span className="mini-line" style={{ background: theme.border }} />
+                </span>
+                <span className="theme-name">{L(theme.nameEn, theme.nameKm)}</span>
+              </button>)}
+            </div>
+            <h4 className="pane-subhead">{L('Accent colour', 'ពណ៌សង្កត់')}</h4>
+            <div className="accent-palette" role="radiogroup" aria-label={L('Accent color', 'ពណ៌សង្កត់')}>
+              {ACCENT_PRESETS.map(accent => {
+                const active = preferences.accent === accent.id;
+                return <button type="button" key={accent.id} role="radio" aria-checked={active} className={`accent-chip ${active ? 'active' : ''}`}
+                  onClick={() => setPreferences(current => ({ ...current, accent: accent.id }))} title={L(accent.nameEn, accent.nameKm)}>
+                  <span className="accent-chip-inner" style={{ backgroundColor: accent.color }}>{active && <Check size={14} color="#FFFFFF" strokeWidth={3} />}</span>
+                </button>;
+              })}
+              <div className={`accent-chip custom-chip ${preferences.accent === 'custom' ? 'active' : ''}`} title={L('Custom Color', 'ពណ៌ផ្ទាល់ខ្លួន')}>
+                <span className="accent-chip-inner" style={{ backgroundColor: preferences.customAccent || '#8B6CF6' }}><Palette size={14} className="custom-chip-icon" /></span>
+                <input type="color" className="custom-color-input" aria-label={L('Pick custom accent color', 'ជ្រើសរើសពណ៌ផ្ទាល់ខ្លួន')} value={preferences.customAccent || '#8B6CF6'}
+                  onChange={event => { const val = event.target.value; setPreferences(current => ({ ...current, accent: 'custom', customAccent: val })); }} />
+              </div>
+            </div>
+            <div className="form-group">
+              <div className="form-row">
+                <span id="setting-bubble-style">{L('Your chat bubbles', 'ប្រអប់សាររបស់អ្នក')}</span>
+                <div className="segmented" role="radiogroup" aria-labelledby="setting-bubble-style">
+                  {(['accent', 'neutral'] as const).map(style => <button type="button" key={style} role="radio" aria-checked={preferences.bubbleStyle === style}
+                    onClick={() => setPreferences(current => ({ ...current, bubbleStyle: style }))}>{style === 'accent' ? L('Colourful', 'ពណ៌ចម្រុះ') : L('Neutral', 'ស្រទន់')}</button>)}
+                </div>
+              </div>
+              <div className="form-row stacked">
+                <label htmlFor="setting-ui-scale">{L('Interface size', 'ទំហំកម្មវិធី')} <span>{preferences.uiScale}%</span></label>
+                <div className="scale-control">
+                  <button type="button" className="scale-step" aria-label={L('Smaller', 'តូចជាងនេះ')} disabled={preferences.uiScale === UI_SCALES[0]} onClick={() => changeScale(-1)}>A−</button>
+                  <input id="setting-ui-scale" type="range" min="0" max={UI_SCALES.length - 1} step="1" value={UI_SCALES.indexOf(preferences.uiScale)}
+                    aria-valuetext={`${preferences.uiScale}%`}
+                    style={{ '--range-fill': `${(UI_SCALES.indexOf(preferences.uiScale) / (UI_SCALES.length - 1)) * 100}%` } as CSSProperties}
+                    onChange={event => { const next = UI_SCALES[Number(event.target.value)]; if (next) setPreferences(current => ({ ...current, uiScale: next })); }} />
+                  <button type="button" className="scale-step big" aria-label={L('Bigger', 'ធំជាងនេះ')} disabled={preferences.uiScale === UI_SCALES[UI_SCALES.length - 1]} onClick={() => changeScale(1)}>A+</button>
+                  {preferences.uiScale !== 100 && <button type="button" className="scale-reset" onClick={() => changeScale(0)}>{L('Reset', 'កំណត់ឡើងវិញ')}</button>}
+                </div>
+              </div>
+              <div className="form-row">
+                <span id="setting-text-size">{L('Chat text size', 'ទំហំអក្សរសារ')}</span>
+                <div className="segmented" role="radiogroup" aria-labelledby="setting-text-size">
+                  {(['small', 'default', 'large'] as const).map(size => <button type="button" key={size} role="radio" aria-checked={preferences.textSize === size}
+                    onClick={() => setPreferences(current => ({ ...current, textSize: size }))}>{size === 'small' ? L('Small', 'តូច') : size === 'default' ? L('Default', 'ធម្មតា') : L('Large', 'ធំ')}</button>)}
+                </div>
+              </div>
+              <div className="form-row">
+                <span id="setting-ui-language">{L('Interface language', 'ភាសាកម្មវិធី')}</span>
+                <div className="segmented" role="radiogroup" aria-labelledby="setting-ui-language">
+                  {(['km', 'en'] as const).map(language => <button type="button" key={language} role="radio" aria-checked={preferences.uiLanguage === language}
+                    onClick={() => setPreferences(current => ({ ...current, uiLanguage: language }))}>{language === 'km' ? 'ខ្មែរ' : 'English'}</button>)}
+                </div>
+              </div>
+            </div>
+            <p className="form-note">{L('Shortcuts: Ctrl + and Ctrl − change the interface size, Ctrl 0 resets it.', 'ផ្លូវកាត់៖ Ctrl + និង Ctrl − ប្តូរទំហំកម្មវិធី, Ctrl 0 កំណត់ឡើងវិញ។')}</p>
+          </>}
+
+          {settingsTab === 'share' && <>
+            <div className="share-steps">
+              <div><span>1</span>{L('On the laptop, run ./share.sh', 'នៅលើកុំព្យូទ័រ ដំណើរការ ./share.sh')}</div>
+              <div><span>2</span>{L('Copy the invite link it prints, or the one below', 'ចម្លងតំណអញ្ជើញដែលវាបង្ហាញ ឬតំណខាងក្រោម')}</div>
+              <div><span>3</span>{L('Your friend opens it and can chat with Sulvana', 'មិត្តរបស់អ្នកបើកវា ហើយអាចជជែកជាមួយ Sulvana')}</div>
+            </div>
+            <div className="form-group">
+              <div className="form-row stacked">
+                <label htmlFor="setting-tunnel">{L('Tunnel address', 'អាសយដ្ឋានផ្លូវរូងក្រោមដី')} <span className={'link-state' + (remoteConfig.tunnel ? ' on' : '')}>{remoteConfig.tunnel ? L('Connected', 'បានភ្ជាប់') : L('This computer', 'កុំព្យូទ័រនេះ')}</span></label>
+                <div className="project-field">
+                  <input id="setting-tunnel" type="text" spellCheck={false} placeholder="https://xxxx.trycloudflare.com" value={tunnelInput}
+                    onChange={event => setTunnelInput(event.target.value)} />
+                </div>
+              </div>
+              <div className="form-row stacked">
+                <label htmlFor="setting-key">{L('Access key', 'កូនសោចូលប្រើ')}</label>
+                <div className="project-field">
+                  <input id="setting-key" type="text" spellCheck={false} placeholder="Passphrase key" value={keyInput}
+                    onChange={event => setKeyInput(event.target.value)} />
+                  <button type="button" onClick={() => saveRemoteSettings(tunnelInput, keyInput)}>{L('Save', 'រក្សាទុក')}</button>
+                  <button type="button" onClick={copyInviteLink} title="Copy invite link to share with your friend">{copiedLink ? L('Copied!', 'បានចម្លង!') : L('Copy link', 'ចម្លងតំណ')}</button>
+                </div>
+              </div>
+            </div>
+            <p className="form-note">{L('Friends can chat and search, but they cannot see your files, your computer or coding mode. You can read what they ask with ./share-logs.sh.',
+              'មិត្តភក្តិអាចជជែក និងស្វែងរកបាន ប៉ុន្តែពួកគេមិនអាចមើលឯកសារ កុំព្យូទ័រ ឬរបៀបសរសេរកូដរបស់អ្នកបានទេ។ អ្នកអាចអានអ្វីដែលពួកគេសួរ ដោយប្រើ ./share-logs.sh។')}</p>
+          </>}
+
+          {settingsTab === 'about' && <>
+            <div className="about-hero">
+              <img src={isLightTheme(preferences.theme) ? WKH_MARK_LIGHT : WKH_MARK_DARK} alt="WKH Labs" />
+              <div><strong>{modelName}</strong><span>{L('by WKH Labs · Wisdom · Khmer · Heritage', 'ដោយ WKH Labs · ប្រាជ្ញា · ខ្មែរ · បេតិកភណ្ឌ')}</span>
+                {baseModel && <span>{L('Built on', 'បង្កើតលើ')} {baseModel}</span>}</div>
+            </div>
+            <div className="team-row">
+              <span className="team-chip lead">Han<small>{L('made it', 'អ្នកបង្កើត')}</small></span>
+              <span className="team-chip">Nisa<small>WKH</small></span>
+              <span className="team-chip">Wanyu<small>WKH</small></span>
+            </div>
+            <h4 className="pane-subhead"><Keyboard size={15} /> {L('Keyboard shortcuts', 'ផ្លូវកាត់ក្តារចុច')}</h4>
+            <div className="shortcut-list">
+              {([['Enter', L('Send', 'ផ្ញើ')], ['Shift + Enter', L('New line', 'បន្ទាត់ថ្មី')], ['Esc', L('Stop a reply', 'បញ្ឈប់ចម្លើយ')],
+                ['Ctrl + N', L('New chat', 'ការសន្ទនាថ្មី')], ['Ctrl + K', L('Search chats', 'ស្វែងរកការសន្ទនា')], ['Ctrl + ,', L('Settings', 'ការកំណត់')],
+                ['Ctrl + Shift + E', L('Export this chat', 'នាំចេញការសន្ទនានេះ')], ['Ctrl + / Ctrl −', L('Interface size', 'ទំហំកម្មវិធី')]] as const).map(([keys, action]) =>
+                <div key={keys}><span>{action}</span><kbd>{keys}</kbd></div>)}
+            </div>
+            <p className="form-note">{L('Sulvana runs on this computer and can make mistakes. Check important answers.', 'Sulvana ដំណើរការលើកុំព្យូទ័រនេះ ហើយអាចឆ្លើយខុស។ សូមពិនិត្យចម្លើយសំខាន់ៗ។')}</p>
+          </>}
         </div>
-      </div>
-      <div className="about-row">
-        <img src={isLightTheme(preferences.theme) ? WKH_MARK_LIGHT : WKH_MARK_DARK} alt="WKH Labs" />
-        <div><strong>{modelName} by WKH Labs</strong><span>Wisdom · Khmer · Heritage{baseModel ? ` · built on ${baseModel}` : ''}</span></div>
       </div>
       <div className="modal-actions spread">
         <button type="button" onClick={() => { setPreferences(current => ({ ...DEFAULT_PREFERENCES, theme: current.theme, accent: current.accent, customAccent: current.customAccent, bubbleStyle: current.bubbleStyle, translate: current.translate, translateAsked: current.translateAsked, uiLanguage: current.uiLanguage,
